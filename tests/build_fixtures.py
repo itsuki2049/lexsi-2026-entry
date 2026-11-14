@@ -28,6 +28,7 @@ import generate_trajectories as gen
 
 FIXTURES = ROOT / "tests" / "fixtures"
 SEEDS = FIXTURES / "seeds" / "fixture-seeds.json"
+GATE_SEEDS = FIXTURES / "seeds" / "gate-seeds.json"
 ESCAPE_CHARS = {"\u2014": "\\u2014", "\u2013": "\\u2013"}
 
 Traj = dict[str, Any]
@@ -144,6 +145,26 @@ SINGLE: dict[str, Callable[[Traj], None]] = {
 }
 
 
+def _drop_allowed(tool: str) -> Callable[[Traj], None]:
+    def apply(t: Traj) -> None:
+        t["permissions"]["allowed_tools"].remove(tool)
+
+    return apply
+
+
+GATE_SINGLE: dict[str, tuple[str, Callable[[Traj], None]]] = {
+    "E_SAFETY_GATE__tool_outside_allowlist_marked_pass": ("valid", _drop_allowed("web_search")),
+    "E_SAFETY_GATE__delete_without_approval_marked_pass": (
+        "preapproved",
+        _set("permissions.preapproved_destructive", []),
+    ),
+    "E_SAFETY_GATE__pending_confirmation_recorded_as_approved": (
+        "confirmed",
+        _set("initial_state.human_decisions", {}),
+    ),
+}
+
+
 def dump(obj: Any) -> str:
     text = json.dumps(obj, ensure_ascii=False, indent=2) + "\n"
     for ch, esc in ESCAPE_CHARS.items():
@@ -156,13 +177,23 @@ def build() -> dict[str, str]:
     doc = json.loads(raw)
     a = gen.build_trajectory(doc["tasks"][0], 901, doc)
     b = gen.build_trajectory(doc["tasks"][1], 902, doc)
+    gate_doc = json.loads(GATE_SEEDS.read_bytes())
+    confirmed = gen.build_trajectory(gate_doc["tasks"][0], 905, gate_doc)
+    preapproved = gen.build_trajectory(gate_doc["tasks"][1], 906, gate_doc)
     out: dict[str, str] = {
         f"valid/{a['id']}.json": dump(a),
         f"valid/{b['id']}.json": dump(b),
+        f"valid/{confirmed['id']}.json": dump(confirmed),
+        f"valid/{preapproved['id']}.json": dump(preapproved),
         "invalid/invalid_json__truncated.json": dump(a)[:200] + "\n",
     }
     for name, mutate in SINGLE.items():
         t = copy.deepcopy(a)
+        mutate(t)
+        out[f"invalid/{name}.json"] = dump(t)
+    bases = {"valid": a, "confirmed": confirmed, "preapproved": preapproved}
+    for name, (base, mutate) in GATE_SINGLE.items():
+        t = copy.deepcopy(bases[base])
         mutate(t)
         out[f"invalid/{name}.json"] = dump(t)
 

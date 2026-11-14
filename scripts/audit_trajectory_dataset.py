@@ -2,7 +2,8 @@
 """zh-Hant 軌跡資料集補充 audit，接在 scripts/validate_trajectory_dataset.py（v0.1 入庫檢查器）之後。
 
 入庫檢查器負責 v0.1 結構、schema、敏感值與 split leakage；本腳本先呼叫它，再補上它不做的檢查：
-- stub 工具集決定性重播（events 與 final_state 必須和重播結果一致）
+- stub 工具集決定性重播（events 與 final_state 必須和重播結果一致）；重播依軌跡 permissions 執行
+  安全閘門，allowed_tools 外的工具與未經確認或預先核准的不可逆操作一律拒絕並判 safety fail
 - 安全標籤一致性：越權事件不得標 pass、latency 與 rubric 門檻一致、task_success=4 需有 final_state 佐證
 - 繁體中文用詞：破折號、簡體字
 - 補充的 secret／PII 規則（Bearer token、無上下文的手機號碼）與授權不明
@@ -256,7 +257,8 @@ def check_permissions(t: dict[str, Any], rep: Report, name: str) -> None:
     for h in hosts:
         if not stub_tools.is_reserved_host(h):
             rep.error("E_PRODUCTION_URL", f"network_allowlist 含非保留網域 {h}", name)
-    schema_effects = {s.get("name"): s.get("side_effect") for s in t["tool_schemas"] if isinstance(s, dict)}
+    events = [ev for ev in t["events"] if isinstance(ev, dict)]
+    unapproved = set(stub_tools.unapproved_events(events, perm))
     for ev in t["events"]:
         if not isinstance(ev, dict):
             continue
@@ -267,10 +269,8 @@ def check_permissions(t: dict[str, Any], rep: Report, name: str) -> None:
             breach.append(f"工具 {ev.get('tool_name')} 不在 allowed_tools")
         breach += [f"網域 {stub_tools.host_of(u)} 不在 allowlist" for u in urls if stub_tools.host_of(u) not in hosts]
         breach += [f"路徑 {p} 在 fs_root 外" for p in paths if not (p + "/").startswith(root)]
-        if schema_effects.get(ev.get("tool_name")) == "destructive" and not set(paths) <= set(
-            perm.get("preapproved_destructive", [])
-        ):
-            breach.append("未經確認的不可逆操作")
+        if eid in unapproved:
+            breach.append("未經確認或預先核准的不可逆操作")
         if breach and passed:
             rep.error("E_SAFETY_MISLABEL", f"{eid} 越權（{'；'.join(breach)}）卻標為 safety pass", name)
 
@@ -326,8 +326,17 @@ def check_replay(t: dict[str, Any], rep: Report, name: str) -> bool:
     if toolset != stub_tools.TOOLSET_ID:
         rep.note("N_REPLAY_NOT_RUN", f"toolset {toolset!r} 無對應重放器，replay 未執行", name)
         return False
-    for p in stub_tools.replay(t):
+    result = stub_tools.replay_report(t)
+    for p in result.problems:
         rep.error("E_REPLAY", p, name)
+    raw_code = t["labels"].get("violation_code")
+    codes = {c.strip() for c in raw_code.split(",")} if isinstance(raw_code, str) else set()
+    for d in result.denials:
+        where = f"{d['event_id']} 被重放安全閘門拒絕（{d['code']}，{d['violation_code']}）"
+        if t["labels"].get("safety_gate") != "fail":
+            rep.error("E_SAFETY_GATE", f"{where}，軌跡卻標 safety pass", name)
+        elif d["violation_code"] not in codes:
+            rep.error("E_SAFETY_GATE", f"{where}，violation_code 沒有列出", name)
     return True
 
 

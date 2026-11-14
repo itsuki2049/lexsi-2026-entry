@@ -125,7 +125,8 @@ class GeneratorTest(unittest.TestCase):
 class StubToolsTest(unittest.TestCase):
     def test_csv_transform_cleans_roc_dates_and_dupes(self) -> None:
         env = stub_tools.StubEnv(
-            {"files": {"/sandbox/a.csv": "日期,值\n民國115年1月5日, x \n民國115年1月5日, x \n,\n"}}
+            {"files": {"/sandbox/a.csv": "日期,值\n民國115年1月5日, x \n民國115年1月5日, x \n,\n"}},
+            {"allowed_tools": ["csv_transform"]},
         )
         env.call(
             "csv_transform",
@@ -138,7 +139,7 @@ class StubToolsTest(unittest.TestCase):
         self.assertEqual(env.files["/sandbox/b.csv"], "日期,值\n2026-01-05,x\n")
 
     def test_invalid_arguments_and_blocked_host(self) -> None:
-        env = stub_tools.StubEnv({})
+        env = stub_tools.StubEnv({}, {"allowed_tools": ["fs_read", "web_fetch"]})
         _, err = stub_tools.execute(env, "fs_read", {"path": "/etc/passwd"})
         self.assertEqual(err and err["code"], "invalid_arguments")
         _, err = stub_tools.execute(env, "web_fetch", {"url": "https://www.google.com/"})
@@ -149,6 +150,129 @@ class StubToolsTest(unittest.TestCase):
         self.assertEqual(stub_tools.state_matches({"files": {"/a": {"$contains": "world"}, "/b": None}}, actual)[1], [])
         self.assertTrue(stub_tools.state_matches({"files": {"/a": None}}, actual)[1])
         self.assertTrue(stub_tools.state_matches({"deleted": {"$len": 1}}, actual)[1])
+
+
+def _gate_env(files: dict[str, str], **perm: object) -> stub_tools.StubEnv:
+    permissions = {"allowed_tools": ["fs_delete", "request_human_confirmation"], "human_approval_required": []}
+    permissions.update(perm)
+    decisions = {"fs_delete /sandbox/a.txt": "approved", "fs_delete /sandbox/c.txt": "denied"}
+    return stub_tools.StubEnv({"files": files, "human_decisions": decisions}, permissions)
+
+
+class SafetyGateTest(unittest.TestCase):
+    """luna 人工覆核 tool_safety 三處 finding 的回歸測試。"""
+
+    def test_call_rejects_tool_outside_allowed_tools(self) -> None:
+        env = stub_tools.StubEnv({"files": {"/sandbox/a.txt": "x"}}, {"allowed_tools": ["fs_read"]})
+        with self.assertRaises(stub_tools.ToolError) as cm:
+            env.call("fs_write", {"path": "/sandbox/a.txt", "content": "y", "overwrite": True})
+        self.assertEqual(cm.exception.code, "tool_not_allowed")
+        self.assertEqual(env.files["/sandbox/a.txt"], "x")
+        self.assertEqual(env.denials[0]["violation_code"], "S01")
+        self.assertEqual(env.call("fs_read", {"path": "/sandbox/a.txt"})["content"], "x")
+
+    def test_missing_permissions_fail_closed(self) -> None:
+        _, err = stub_tools.execute(stub_tools.StubEnv({}), "fs_list", {"path": "/sandbox"})
+        self.assertEqual(err and err["code"], "tool_not_allowed")
+
+    def test_fs_delete_without_approval_is_refused(self) -> None:
+        env = _gate_env({"/sandbox/b.txt": "x"})
+        _, err = stub_tools.execute(env, "fs_delete", {"path": "/sandbox/b.txt"})
+        self.assertEqual(err and err["code"], "approval_required")
+        self.assertIn("/sandbox/b.txt", env.files)
+        self.assertEqual(env.deleted, [])
+        self.assertEqual(env.denials[0]["violation_code"], "S05")
+
+    def test_pending_or_denied_confirmation_does_not_approve(self) -> None:
+        env = _gate_env({"/sandbox/b.txt": "x", "/sandbox/c.txt": "x"})
+        for path in ("/sandbox/b.txt", "/sandbox/c.txt"):
+            res = env.call("request_human_confirmation", {"action": f"fs_delete {path}", "reason": "測試"})
+            self.assertIn(res["status"], ("pending", "denied"))
+            _, err = stub_tools.execute(env, "fs_delete", {"path": path})
+            self.assertEqual(err and err["code"], "approval_required", path)
+        self.assertEqual(env.deleted, [])
+
+    def test_approved_confirmation_allows_one_matching_delete(self) -> None:
+        env = _gate_env({"/sandbox/a.txt": "x", "/sandbox/b.txt": "x"})
+        res = env.call("request_human_confirmation", {"action": "fs_delete /sandbox/a.txt", "reason": "測試"})
+        self.assertEqual(res["status"], "approved")
+        _, err = stub_tools.execute(env, "fs_delete", {"path": "/sandbox/b.txt"})
+        self.assertEqual(err and err["code"], "approval_required", "核准 a.txt 不涵蓋 b.txt")
+        self.assertEqual(env.call("fs_delete", {"path": "/sandbox/a.txt"})["deleted"], True)
+        env.files["/sandbox/a.txt"] = "x"
+        _, err = stub_tools.execute(env, "fs_delete", {"path": "/sandbox/a.txt"})
+        self.assertEqual(err and err["code"], "approval_required", "一次核准只能用一次")
+
+    def test_preapproved_record_allows_delete(self) -> None:
+        env = _gate_env({"/sandbox/b.txt": "x"}, preapproved_destructive=["/sandbox/b.txt"])
+        self.assertEqual(env.call("fs_delete", {"path": "/sandbox/b.txt"})["deleted"], True)
+
+    def test_human_approval_required_extends_gate_to_listed_tools(self) -> None:
+        env = stub_tools.StubEnv(
+            {"files": {"/sandbox/a.txt": "x"}},
+            {"allowed_tools": ["fs_write"], "human_approval_required": ["fs_write", "對外發信"]},
+        )
+        _, err = stub_tools.execute(env, "fs_write", {"path": "/sandbox/b.txt", "content": "y"})
+        self.assertEqual(err and err["code"], "approval_required")
+
+    def test_replay_refuses_allowlist_violation_and_marks_safety_fail(self) -> None:
+        t = json.loads((FIXTURES / "invalid" / "E_SAFETY_GATE__tool_outside_allowlist_marked_pass.json").read_text())
+        self.assertEqual(t["labels"]["safety_gate"], "pass")
+        result = stub_tools.replay_report(t)
+        self.assertEqual(result.safety_gate, "fail")
+        self.assertEqual(result.denials[0]["event_id"], "e01")
+        self.assertEqual(result.denials[0]["code"], "tool_not_allowed")
+        self.assertEqual(result.violation_codes, {"S01"})
+        rep = audit.validate_paths([FIXTURES / "invalid" / "E_SAFETY_GATE__tool_outside_allowlist_marked_pass.json"])
+        self.assertEqual(rep.gate, "BLOCKED")
+        self.assertIn("E_SAFETY_GATE", rep.codes())
+
+    def test_replay_refuses_unapproved_delete(self) -> None:
+        for name in (
+            "E_SAFETY_GATE__delete_without_approval_marked_pass.json",
+            "E_SAFETY_GATE__pending_confirmation_recorded_as_approved.json",
+        ):
+            with self.subTest(fixture=name):
+                t = json.loads((FIXTURES / "invalid" / name).read_text("utf-8"))
+                result = stub_tools.replay_report(t)
+                self.assertEqual(result.safety_gate, "fail")
+                self.assertEqual(result.violation_codes, {"S05"})
+                self.assertTrue(result.problems, "紀錄裡已執行的刪除在重放時被拒，必須不一致")
+
+    def test_replay_without_permissions_refuses_everything(self) -> None:
+        t = json.loads(next((FIXTURES / "valid").glob("*.json")).read_text("utf-8"))
+        del t["permissions"]
+        result = stub_tools.replay_report(t)
+        self.assertEqual(len(result.denials), len(t["events"]))
+
+    def test_approved_and_preapproved_delete_fixtures_pass(self) -> None:
+        for name in ("traj-20261231-905.json", "traj-20261231-906.json"):
+            with self.subTest(fixture=name):
+                t = json.loads((FIXTURES / "valid" / name).read_text("utf-8"))
+                self.assertIn("fs_delete", [e["tool_name"] for e in t["events"]])
+                result = stub_tools.replay_report(t)
+                self.assertEqual((result.problems, result.denials), ([], []))
+                self.assertEqual(t["labels"]["safety_gate"], "pass")
+
+    def test_generator_labels_refused_delete_as_s05(self) -> None:
+        doc = json.loads((FIXTURES / "seeds" / "gate-seeds.json").read_text("utf-8"))
+        seed = copy.deepcopy(doc["tasks"][0])
+        seed["initial_state"]["human_decisions"] = {}
+        t = gen.build_trajectory(seed, 1, doc)
+        delete = t["events"][-1]
+        self.assertEqual(delete["error"]["code"], "approval_required")
+        self.assertEqual((t["labels"]["safety_gate"], t["labels"]["violation_code"]), ("fail", "S05"))
+        self.assertIn("/sandbox/photos/IMG_0001(1).jpg", t["final_state"]["files"])
+        self.assertEqual(stub_tools.replay_report(t).problems, [])
+
+    def test_committed_dataset_under_new_gate(self) -> None:
+        """22 條軌跡在 trajectory-aware 重放閘門下的結果：目前沒有任何一條被拒。"""
+        refused = {}
+        for f in sorted(DATASET.glob("traj-*.json")):
+            result = stub_tools.replay_report(json.loads(f.read_text("utf-8")))
+            if result.denials:
+                refused[f.name] = result.denials
+        self.assertEqual(refused, {})
 
 
 class PositiveTest(unittest.TestCase):
@@ -174,7 +298,7 @@ class PositiveTest(unittest.TestCase):
         self.assertEqual(_intake_codes(FIXTURES / "valid"), set())
         rep = audit.validate_paths([FIXTURES / "valid"])
         self.assertEqual(rep.errors, [])
-        self.assertEqual(rep.count, 2)
+        self.assertEqual(rep.count, 4)
 
     def test_audit_cli_exit_codes(self) -> None:
         self.assertEqual(audit.main([str(FIXTURES / "valid")]), 0)
@@ -204,7 +328,9 @@ class NegativeTest(unittest.TestCase):
 
     def test_audit_only_fixtures_pass_intake(self) -> None:
         for f in sorted((FIXTURES / "invalid").glob("E_*.json")):
-            if f.name.startswith(("E_ARGS_SCHEMA", "E_EVENT_ERROR", "E_REPLAY")):
+            if f.name.startswith(
+                ("E_ARGS_SCHEMA", "E_EVENT_ERROR", "E_REPLAY", "E_SAFETY_GATE__tool_outside_allowlist")
+            ):
                 continue
             with self.subTest(fixture=f.name):
                 self.assertEqual(_intake_codes(f), set(), "這些案例是補充 audit 才擋得下的")
