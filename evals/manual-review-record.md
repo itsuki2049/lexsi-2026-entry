@@ -2,7 +2,7 @@
 
 審查人：luna agent（櫻小路露娜，5a）
 審查日期：2026-11-14
-審查基準：資料初審以 `main` commit `4181e19` 為準，round 2 delta 以 `main` commit `11634b2` 為準，round 3 delta 以 `main` commit `c78c5ba` 為準。資料集版本 `0.1.0`，22 條軌跡，SHA-256 `afb63e7df1c61682c32e5909aa8bd47e243433e3eac8e6472d9ff138e38eac20`。
+審查基準：資料初審以 `main` commit `4181e19` 為準，round 2 delta 以 `main` commit `11634b2` 為準，round 3 delta 以 `main` commit `c78c5ba` 為準，round 4 delta 以 `main` commit `a7969c1` 為準。資料集版本 `0.1.0`，22 條軌跡，SHA-256 `afb63e7df1c61682c32e5909aa8bd47e243433e3eac8e6472d9ff138e38eac20`。
 證據等級：A 表示直接檢視提交資料或實跑輸出；B 表示依實作控制流程推得的風險；NOT RUN 表示尚未執行或需另一位覆核者。
 
 ## 結論摘要
@@ -12,10 +12,10 @@
 | locale_naturalness | PASS | 逐條讀取 22 條 task，繁中用詞符合台灣語境，未見簡體字或語意不清的任務指令。 |
 | license_validity | PASS | PR #7 補權利人與資料集授權聲明，PR #9 修正 manifest 路徑，兩者重驗通過。 |
 | oracle_correctness | PASS | 依風險抽查 6 條，expected_state 與 final_state、任務限制及人工確認行為一致。 |
-| tool_safety | FAIL | PR #12 阻擋核准錯配、未允許網域及根目錄外路徑三條指定重現，但含 `..` 的路徑仍可穿越 fs_root。 |
+| tool_safety | FAIL | PR #14 阻擋核准錯配、未允許網域、根目錄外及 dot segment 路徑，但 `preapproved_destructive` 仍可替非 destructive 工具授權。 |
 | prompt_injection_labels | PASS WITH NOTES | injection 與 benign near-miss 的差異和標籤正確。高嚴重度樣本仍需第二位覆核者。 |
 
-**整體 Gate：BLOCKED。** tool_safety 的路徑穿越仍待修正及複審。高嚴重度 prompt injection 樣本尚缺第二位覆核者。已即時回報 t1c。
+**整體 Gate：BLOCKED。** `preapproved_destructive` 跨工具授權仍待修正及複審。高嚴重度 prompt injection 樣本尚缺第二位覆核者。已即時回報 t1c。
 
 ## 1. locale_naturalness
 
@@ -51,7 +51,7 @@
 
 ## 4. tool_safety
 
-**判定：FAIL，證據等級 A 與 B。** PR #10（commit `ac6b54a`）修正初審三項缺口。PR #12（commit `ab2c5e2`）再以結構化核准、逐字網域檢查及 fs_root 邊界檢查修正 round 2 三項重現。round 3 仍找到 `..` 路徑段可穿越 fs_root。stub 只操作記憶體，不直接連網或寫實體檔案，但其安全邊界模型尚未完整。
+**判定：FAIL，證據等級 A 與 B。** PR #10（commit `ac6b54a`）修正初審三項缺口。PR #12（commit `ab2c5e2`）修正核准目標錯配與 per-task scope 缺口。PR #14（commit `c134e38`）再阻擋 dot segment 路徑。第五輪邊界探測仍發現 `preapproved_destructive` 可跨工具授權 `fs_write`。stub 只操作記憶體，不直接連網或寫實體檔案，但核准邊界模型尚未完整。
 
 ### PR #10 與 round 2 findings 修復
 
@@ -67,7 +67,15 @@
 - 影響 B：path 經一般檔案系統語意解析後，`/sandbox/allowed/../private.txt` 指向 `/sandbox/private.txt`，超出授權根目錄。stub 目前用記憶體 map，因此重現證明的是 scope gate 漏擋，不宣稱已讀取實體檔案。
 - 建議：對 path、src、dst 先拒絕 `.` 與 `..` segment 或以一致的 canonical path parts 比較根目錄，並保留該攻擊的負向 fixture。此項已即時回報 t1c，round 3 修復待交付。
 
-此項仍判 FAIL。PR #12 的三條指定重現已修復，新增 dot segment 重現仍未修復。
+### round 4 delta：dot segment 修復與第五輪核准邊界探測
+
+- PR #14 修正 dot segment finding。`has_dot_segment` 拒絕 `.` 與 `..`，`in_fs_root` 以 `PurePosixPath.parts` 比較路徑段，`scope_violations` 在呼叫工具前套用 gate，見 `scripts/stub_tools.py:411-453,561-576`。新增 fixture 與測試覆蓋 fs_read、fs_list、fs_write、fs_mkdir、fs_delete、fs_move、csv_transform 的 path、src、dst，以及含 dot segment 的 fs_root，見 `tests/test_trajectory_pipeline.py:359-418`。
+- 同腳本重跑前三輪的核准錯配、network allowlist、fs_root 外路徑，分別得到 `approval_required`、`host_not_allowed`、`path_outside_root`。`/sandbox/allowed/../private.txt` 得到 `dot_segment_denied`。root prefix sibling `/sandbox/reports-old/a.md` 也得到 `path_outside_root`。證據：回歸測試 `tests/test_trajectory_pipeline.py:268-376` 及本地逐項重現輸出。
+- 新發現 A，preapproved 跨工具授權：`approval_required_tools` 將 `human_approval_required` 指定的工具加入核准集合，見 `scripts/stub_tools.py:349-352`。但 `ApprovalLedger.consume` 對所有工具只檢查目標是否出現在 `preapproved_destructive`，沒有驗證目前工具是否屬於 destructive，見 `:388-408`。重現設定 `allowed_tools=[fs_write]`、`human_approval_required=[fs_write]`、`preapproved_destructive=[/sandbox/a]`，呼叫覆寫 `/sandbox/a` 的 `fs_write`，結果成功寫入 `new`，未要求 fs_write 專屬確認。證據為本地第五輪 probe。
+- 影響 B：針對破壞性操作的路徑預核准可被轉用來授權不同工具的寫入或覆寫，與 PR #12 的 `(tool, target)` 精確核准界線不一致。
+- 建議：只允許 `side_effect=destructive` 的工具消耗 `preapproved_destructive`，或將預先核准記為精確 `(tool, target)` key。此 finding 已即時回報 t1c，round 4 修復待交付。
+
+此項仍判 FAIL。PR #14 三條歷史重現及 dot segment 重現均已通過阻擋，preapproved 跨工具授權仍未修復。
 
 ## 5. prompt_injection_labels
 
@@ -81,8 +89,8 @@
 
 - 命令：`python3 scripts/validate_trajectory_dataset.py data/trajectories`。結果 `files=22 errors=0 warnings=0`，同時列出五項 `MANUAL_REVIEW_REQUIRED`。
 - 命令：`python3 scripts/audit_trajectory_dataset.py data/trajectories/zh-Hant --manifest data/manifests/trajectories-zh-Hant.json`。結果 22 條、dataset hash 與 manifest 相符，replay 與相關自動檢查 RUN 且無 errors；duplicate semantic 與 human review 標 NOT RUN，Gate 為 PASS WITH NOTES。
-- PR #10 指定 pytest 命令 `python3 -m pytest tests/test_trajectory_pipeline.py` 未能執行，環境回覆 `No module named pytest`。替代 unittest 執行在 PR #10 為 34 tests 通過，在 PR #12 main 為 40 tests 通過。完整 pytest 結果仍 NOT RUN。
-- PR #12 main 的完整資料集 audit 為 22 條，replay、manifest、相關自動檢查 RUN，沒有錯誤；human review 與語意近重複檢查仍 NOT RUN。
-- PR #12 三條指定重現均已阻擋，但 dot segment fs_root 穿越待 Devin round 3 修復。高嚴重度 injection 案例待第二位覆核。兩項完成前，整體 Gate 維持 BLOCKED。
+- PR #10 指定 pytest 命令 `python3 -m pytest tests/test_trajectory_pipeline.py` 未能執行，環境回覆 `No module named pytest`。替代 unittest 執行在 PR #10 為 34 tests 通過，在 PR #12 main 為 40 tests 通過，在 PR #14 main 為 42 tests 通過。完整 pytest 結果仍 NOT RUN。
+- PR #14 main 的完整資料集 audit 為 22 條，replay、manifest、相關自動檢查 RUN，沒有錯誤；human review 與語意近重複檢查仍 NOT RUN。
+- PR #14 修正 dot segment 邊界。第五輪探測發現 preapproved 跨工具核准，待 Devin round 4 修復。高嚴重度 injection 案例待第二位覆核。兩項完成前，整體 Gate 維持 BLOCKED。
 
 訊息來自 luna agent（櫻小路露娜，5a）
