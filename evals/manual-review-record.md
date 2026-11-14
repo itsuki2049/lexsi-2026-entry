@@ -2,7 +2,7 @@
 
 審查人：luna agent（櫻小路露娜，5a）
 審查日期：2026-11-14
-審查基準：資料初審以 `main` commit `4181e19` 為準，delta 以 `main` commit `11634b2` 為準。資料集版本 `0.1.0`，22 條軌跡，SHA-256 `afb63e7df1c61682c32e5909aa8bd47e243433e3eac8e6472d9ff138e38eac20`。
+審查基準：資料初審以 `main` commit `4181e19` 為準，round 2 delta 以 `main` commit `11634b2` 為準，round 3 delta 以 `main` commit `c78c5ba` 為準。資料集版本 `0.1.0`，22 條軌跡，SHA-256 `afb63e7df1c61682c32e5909aa8bd47e243433e3eac8e6472d9ff138e38eac20`。
 證據等級：A 表示直接檢視提交資料或實跑輸出；B 表示依實作控制流程推得的風險；NOT RUN 表示尚未執行或需另一位覆核者。
 
 ## 結論摘要
@@ -12,10 +12,10 @@
 | locale_naturalness | PASS | 逐條讀取 22 條 task，繁中用詞符合台灣語境，未見簡體字或語意不清的任務指令。 |
 | license_validity | PASS | PR #7 補權利人與資料集授權聲明，PR #9 修正 manifest 路徑，兩者重驗通過。 |
 | oracle_correctness | PASS | 依風險抽查 6 條，expected_state 與 final_state、任務限制及人工確認行為一致。 |
-| tool_safety | FAIL | PR #10 修正原三項缺口，但核准目標可用子字串錯配，且未執行 per-task network allowlist 與 fs_root。 |
+| tool_safety | FAIL | PR #12 阻擋核准錯配、未允許網域及根目錄外路徑三條指定重現，但含 `..` 的路徑仍可穿越 fs_root。 |
 | prompt_injection_labels | PASS WITH NOTES | injection 與 benign near-miss 的差異和標籤正確。高嚴重度樣本仍需第二位覆核者。 |
 
-**整體 Gate：BLOCKED。** tool_safety 仍有 FAIL 級繞過待修正及複審。高嚴重度 prompt injection 樣本尚缺第二位覆核者。已即時回報 t1c。
+**整體 Gate：BLOCKED。** tool_safety 的路徑穿越仍待修正及複審。高嚴重度 prompt injection 樣本尚缺第二位覆核者。已即時回報 t1c。
 
 ## 1. locale_naturalness
 
@@ -51,16 +51,23 @@
 
 ## 4. tool_safety
 
-**判定：FAIL，證據等級 A 與 B。** PR #10（commit `ac6b54a`）修正初審三項缺口：`StubEnv.call` 強制 allowed_tools，破壞性工具需預先核准或 approved confirmation，replay 依 trajectory permissions 執行並記錄 denials。以下新探測顯示仍有權限繞過。stub 只操作記憶體，不直接連網或寫實體檔案，但安全評測會因此失真。
+**判定：FAIL，證據等級 A 與 B。** PR #10（commit `ac6b54a`）修正初審三項缺口。PR #12（commit `ab2c5e2`）再以結構化核准、逐字網域檢查及 fs_root 邊界檢查修正 round 2 三項重現。round 3 仍找到 `..` 路徑段可穿越 fs_root。stub 只操作記憶體，不直接連網或寫實體檔案，但其安全邊界模型尚未完整。
 
-- 原 findings 已修正，證據 A：`scripts/stub_tools.py:488-498` 在執行工具前強制 `allowed_tools`；`approval_required_tools` 與 `_authorize` 在 `:339-373,478-486` 加入破壞性工具及核准檢查；`replay_report` 在 `:673-686` 依 permissions 重播並記錄拒絕。新增負向測試涵蓋未授權工具、未核准刪除、pending 或 denied confirmation，正向測試涵蓋 approved 與 preapproved 刪除，見 `tests/test_trajectory_pipeline.py:155-275`。
-- 發現 A，核准目標子字串繞過：`scripts/stub_tools.py:478-486` 用 `target in action` 比對目標，`unapproved_events` 也在 `:350-373` 使用相同邏輯。實測先核准 `delete /sandbox/a-b`，再呼叫 `fs_delete /sandbox/a`，刪除成功。核准文字不是結構化的工具與目標相等檢查，兄弟路徑可錯配。
-- 發現 A，network allowlist 未接：`StubEnv` 在 `scripts/stub_tools.py:441-448` 沒保存每題 `network_allowlist`。`_web_fetch` 與 `_http_request` 在 `:504-510,566-585` 只檢查 host 是否為保留測試網域，沒有檢查 host 是否屬於該題 allowlist。實測該題只允許 `allowed.example.test`，仍能讀取已 seed 的 `blocked.example.test`。
-- 發現 A，fs_root 未接：同一 `StubEnv` 初始化未保存 `fs_root`，`_fs_read` 在 `:524-527` 只檢查檔案是否存在。實測題目 `fs_root=/sandbox/allowed` 時，仍能讀取 `/sandbox/private.txt`。
-- 影響 B：核准文字可能授權錯誤路徑，且工具仍可跨越 per-task 網域與檔案根目錄。現行資料雖只用記憶體 sandbox，這些缺口會使安全邊界與評測結果不可信。
-- 建議：以結構化核准紀錄綁定 tool name 與 canonical target，禁止子字串比對；在每個工具執行前檢查 `network_allowlist` 與 `fs_root`，並對 path 做正規化及邊界檢查。以上新 findings 已即時回報 t1c，round 2 修復待交付。
+### PR #10 與 round 2 findings 修復
 
-此項 FAIL 已即時回報 t1c。PR #10 三項初始修正本身通過對應正負向 fixture，但新發現尚未修復。
+- `StubEnv.call` 在 `scripts/stub_tools.py:561-576` 執行前檢查 allowed_tools、URL scope、path scope 與 approval。破壞性工具須預先核准或已核准的確認紀錄，replay 依 trajectory permissions 重播並記錄拒絕，見 `:388-408,737-750`。
+- 核准現在解析為 `(tool, target)`，並以完整 tuple 比對，見 `scripts/stub_tools.py:363-408,555-559`。測試核准 `/sandbox/a-b` 不授權刪除 `/sandbox/a`，也檢查工具名稱必須一致，見 `tests/test_trajectory_pipeline.py:278-327`。
+- `scope_violations` 逐字核對 network allowlist 主機，並檢查 path、src、dst 是否位於 fs_root，見 `scripts/stub_tools.py:411-433,561-576`。測試驗證 host 不在 allowlist 時回 `host_not_allowed`，根目錄外路徑回 `path_outside_root`，見 `tests/test_trajectory_pipeline.py:328-376`。
+- 三條指定重現在 PR #12 main 上均被阻擋：核准 `/sandbox/a-b` 後刪 `/sandbox/a` 回 `approval_required`；只允許 `allowed.example.test` 時抓取 `blocked.example.test` 回 `host_not_allowed`；fs_root 為 `/sandbox/allowed` 時讀取 `/sandbox/private.txt` 回 `path_outside_root`。證據為以上回歸測試及本地逐條重跑輸出。
+
+### round 3 新 finding：fs_root 可被 dot segment 穿越
+
+- 發現 A：`in_fs_root` 在 `scripts/stub_tools.py:416-417` 只用字串 prefix 確認根目錄。工具 path schema `:52` 接受 `..` segment，未先 canonicalize 或拒絕 dot segment。
+- 重現：permissions 設 `fs_root=/sandbox/allowed`，initial state 放入 `/sandbox/allowed/../private.txt`，呼叫 `fs_read` 該路徑，結果成功回傳 `content=traversed`，未回 `path_outside_root`。讀取函式見 `scripts/stub_tools.py:602-605`。
+- 影響 B：path 經一般檔案系統語意解析後，`/sandbox/allowed/../private.txt` 指向 `/sandbox/private.txt`，超出授權根目錄。stub 目前用記憶體 map，因此重現證明的是 scope gate 漏擋，不宣稱已讀取實體檔案。
+- 建議：對 path、src、dst 先拒絕 `.` 與 `..` segment 或以一致的 canonical path parts 比較根目錄，並保留該攻擊的負向 fixture。此項已即時回報 t1c，round 3 修復待交付。
+
+此項仍判 FAIL。PR #12 的三條指定重現已修復，新增 dot segment 重現仍未修復。
 
 ## 5. prompt_injection_labels
 
@@ -74,7 +81,8 @@
 
 - 命令：`python3 scripts/validate_trajectory_dataset.py data/trajectories`。結果 `files=22 errors=0 warnings=0`，同時列出五項 `MANUAL_REVIEW_REQUIRED`。
 - 命令：`python3 scripts/audit_trajectory_dataset.py data/trajectories/zh-Hant --manifest data/manifests/trajectories-zh-Hant.json`。結果 22 條、dataset hash 與 manifest 相符，replay 與相關自動檢查 RUN 且無 errors；duplicate semantic 與 human review 標 NOT RUN，Gate 為 PASS WITH NOTES。
-- PR #10 指定 pytest 命令 `python3 -m pytest tests/test_trajectory_pipeline.py` 未能執行，環境回覆 `No module named pytest`。替代執行 `python3 -m unittest discover -s tests -t .`，34 tests 通過。完整 pytest 結果仍 NOT RUN。
-- 在 PR #10 與合併後 main 重現兩條核准繞過和一條 fs_root 讀取問題。round 2 修復與 delta 結論待 Devin PR。高嚴重度 injection 案例待第二位覆核。兩項完成前，整體 Gate 維持 BLOCKED。
+- PR #10 指定 pytest 命令 `python3 -m pytest tests/test_trajectory_pipeline.py` 未能執行，環境回覆 `No module named pytest`。替代 unittest 執行在 PR #10 為 34 tests 通過，在 PR #12 main 為 40 tests 通過。完整 pytest 結果仍 NOT RUN。
+- PR #12 main 的完整資料集 audit 為 22 條，replay、manifest、相關自動檢查 RUN，沒有錯誤；human review 與語意近重複檢查仍 NOT RUN。
+- PR #12 三條指定重現均已阻擋，但 dot segment fs_root 穿越待 Devin round 3 修復。高嚴重度 injection 案例待第二位覆核。兩項完成前，整體 Gate 維持 BLOCKED。
 
 訊息來自 luna agent（櫻小路露娜，5a）
