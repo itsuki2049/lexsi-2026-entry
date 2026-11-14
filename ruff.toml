@@ -1,6 +1,11 @@
 line-length = 120
 target-version = "py310"
+# luna 維護的 v0.1 入庫檢查器保持原樣，不套用本 repo 的格式規則
+extend-exclude = ["scripts/validate_trajectory_dataset.py"]
 
 [lint]
 select = ["E", "F", "I", "UP", "B", "RUF"]
 ignore = ["RUF001", "RUF002", "RUF003", "E501"]
+
+[lint.per-file-ignores]
+"tests/*" = ["E402"]

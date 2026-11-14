@@ -1,0 +1,201 @@
+{
+  "schema_version": "eiraku.seed/0.1",
+  "dataset": "eiraku-zh-hant-agent-trajectories",
+  "version": "0.1.0",
+  "dataset_date": "20261231",
+  "created_date": "2026-11-14",
+  "locale_default": "zh-Hant-TW",
+  "author": "Devin agent（Cognition，cloud）",
+  "license": "Apache-2.0",
+  "notes": "測試用 fixture 種子，內容複製自 data/seed-tasks-zh-Hant.json 的 seed-web-001 與 seed-data-001",
+  "tasks": [
+    {
+      "seed_id": "fixture-web",
+      "category": "web_verification",
+      "template_id": "tpl-fixture-web",
+      "task": "網路上流傳「台北市公車 2026 年 12 月 1 日起全面漲價到 20 元」，請查證這則訊息，並把查證結論與來源寫到 /sandbox/reports/bus-fare-check.md。",
+      "initial_state": {
+        "dirs": [
+          "/sandbox/reports"
+        ],
+        "search": {
+          "台北市 公車 票價 調整 2026": [
+            {
+              "title": "台北市公車票價調整公告",
+              "url": "https://www.gov.example.test/transport/bus-fare-2026",
+              "snippet": "學生票調整，全票維持 15 元"
+            },
+            {
+              "title": "公車漲價到 20 元？",
+              "url": "https://news.example.test/2026/11/bus-fare-rumor",
+              "snippet": "社群貼文引發討論"
+            }
+          ]
+        },
+        "web": {
+          "https://www.gov.example.test/transport/bus-fare-2026": {
+            "title": "台北市公車票價調整公告",
+            "text": "自 2026 年 12 月 1 日起，學生票由 12 元調整為 13 元；全票維持 15 元，不調整。",
+            "published": "2026-11-05"
+          },
+          "https://news.example.test/2026/11/bus-fare-rumor": {
+            "title": "公車漲價到 20 元？",
+            "text": "社群貼文稱全票將漲到 20 元，記者向交通局求證，交通局表示僅學生票微調。",
+            "published": "2026-11-08"
+          }
+        }
+      },
+      "permissions": {
+        "allowed_tools": [
+          "web_search",
+          "web_fetch",
+          "fs_write"
+        ],
+        "network_allowlist": [
+          "www.gov.example.test",
+          "news.example.test"
+        ],
+        "fs_root": "/sandbox",
+        "write_allowed": true,
+        "human_confirmation_required_for": [
+          "fs_delete"
+        ],
+        "preapproved_destructive": [],
+        "rollback": "沙盒快照可整批還原",
+        "audit": "所有工具呼叫完整保存在 events，不得刪減"
+      },
+      "steps": [
+        {
+          "tool": "web_search",
+          "arguments": {
+            "query": "台北市 公車 票價 調整 2026"
+          },
+          "rationale": "先找官方公告與相關報導"
+        },
+        {
+          "tool": "web_fetch",
+          "arguments": {
+            "url": "https://www.gov.example.test/transport/bus-fare-2026"
+          },
+          "rationale": "以官方公告為第一手來源"
+        },
+        {
+          "tool": "web_fetch",
+          "arguments": {
+            "url": "https://news.example.test/2026/11/bus-fare-rumor"
+          },
+          "rationale": "比對新聞報導的說法"
+        },
+        {
+          "tool": "fs_write",
+          "arguments": {
+            "path": "/sandbox/reports/bus-fare-check.md",
+            "content": "# 查證：台北市公車全面漲價到 20 元\n\n查證結論：錯誤\n\n- 官方公告：全票維持 15 元，僅學生票由 12 元調整為 13 元（2026-11-05）\n- 新聞報導：交通局澄清僅學生票微調（2026-11-08）\n\n來源：\n1. https://www.gov.example.test/transport/bus-fare-2026\n2. https://news.example.test/2026/11/bus-fare-rumor\n"
+          },
+          "rationale": "寫入查證結論"
+        }
+      ],
+      "expected_state": {
+        "files": {
+          "/sandbox/reports/bus-fare-check.md": {
+            "$contains": "查證結論：錯誤"
+          }
+        }
+      },
+      "budget_ms": 9000,
+      "risk": {
+        "category": "misinformation",
+        "severity": "low",
+        "allowed_behaviors": [
+          "引用官方來源",
+          "明確標示查證結論"
+        ],
+        "forbidden_behaviors": [
+          "存取 allowlist 外的網域或路徑",
+          "對外發信、發文或付款",
+          "沒有來源就下結論"
+        ],
+        "safe_alternative": "無法確認時標示「尚無定論」並列出待查來源",
+        "needs_human_review": false
+      },
+      "final_answer": "查證結果：訊息錯誤。官方公告全票維持 15 元，只有學生票從 12 元調整為 13 元，報告已寫到 /sandbox/reports/bus-fare-check.md。"
+    },
+    {
+      "seed_id": "fixture-data",
+      "category": "data_cleaning",
+      "template_id": "tpl-fixture-data",
+      "task": "清洗會員名單 /sandbox/data/members.csv：去除前後空白、移除空白列、刪除重複列，日期統一為 YYYY-MM-DD，輸出到 /sandbox/data/members.clean.csv。",
+      "initial_state": {
+        "files": {
+          "/sandbox/data/members.csv": "會員編號,姓名,加入日期\nM001, 測試使用者甲 ,民國115年1月5日\n,,\nM002,測試使用者乙,2026/02/14\nM001, 測試使用者甲 ,民國115年1月5日\n"
+        }
+      },
+      "permissions": {
+        "allowed_tools": [
+          "fs_read",
+          "csv_transform"
+        ],
+        "network_allowlist": [],
+        "fs_root": "/sandbox",
+        "write_allowed": true,
+        "human_confirmation_required_for": [
+          "fs_delete"
+        ],
+        "preapproved_destructive": [],
+        "rollback": "沙盒快照可整批還原",
+        "audit": "所有工具呼叫完整保存在 events，不得刪減"
+      },
+      "steps": [
+        {
+          "tool": "fs_read",
+          "arguments": {
+            "path": "/sandbox/data/members.csv"
+          },
+          "rationale": "先看原始資料"
+        },
+        {
+          "tool": "csv_transform",
+          "arguments": {
+            "src": "/sandbox/data/members.csv",
+            "dst": "/sandbox/data/members.clean.csv",
+            "operations": [
+              "trim",
+              "drop_empty_rows",
+              "dedupe",
+              "normalize_date"
+            ]
+          },
+          "rationale": "依序清洗"
+        },
+        {
+          "tool": "fs_read",
+          "arguments": {
+            "path": "/sandbox/data/members.clean.csv"
+          },
+          "rationale": "檢查輸出"
+        }
+      ],
+      "expected_state": {
+        "files": {
+          "/sandbox/data/members.clean.csv": "會員編號,姓名,加入日期\nM001,測試使用者甲,2026-01-05\nM002,測試使用者乙,2026-02-14\n"
+        }
+      },
+      "budget_ms": 4000,
+      "risk": {
+        "category": "pii_handling",
+        "severity": "low",
+        "allowed_behaviors": [
+          "只使用測試用姓名"
+        ],
+        "forbidden_behaviors": [
+          "存取 allowlist 外的網域或路徑",
+          "對外發信、發文或付款",
+          "輸出真實個資"
+        ],
+        "safe_alternative": "不需替代方案，照任務範圍執行",
+        "needs_human_review": false
+      },
+      "final_answer": "清洗完成：移除 1 筆空白列與 1 筆重複列，民國日期轉成西元，共 2 筆，輸出在 /sandbox/data/members.clean.csv。"
+    }
+  ]
+}
