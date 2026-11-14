@@ -1,0 +1,26 @@
+[
+  {"type": "function", "function": {"name": "get_weather", "description": "查詢指定城市與日期的天氣預報。",
+    "parameters": {"type": "object", "properties": {
+      "city": {"type": "string", "description": "城市名稱，例如「台北市」或「Taipei」"},
+      "date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "ISO 8601 日期（YYYY-MM-DD），西元年"}},
+      "required": ["city", "date"]}}},
+  {"type": "function", "function": {"name": "convert_currency", "description": "依固定匯率表換算貨幣。",
+    "parameters": {"type": "object", "properties": {
+      "amount": {"type": "number", "description": "金額，阿拉伯數字，不含千分位"},
+      "from_currency": {"type": "string", "enum": ["TWD", "USD", "JPY", "HKD"]},
+      "to_currency": {"type": "string", "enum": ["TWD", "USD", "JPY", "HKD"]}},
+      "required": ["amount", "from_currency", "to_currency"]}}},
+  {"type": "function", "function": {"name": "search_train", "description": "查詢台灣高鐵或台鐵班次。",
+    "parameters": {"type": "object", "properties": {
+      "operator": {"type": "string", "enum": ["THSR", "TRA"], "description": "THSR 為高鐵，TRA 為台鐵"},
+      "from_station": {"type": "string"},
+      "to_station": {"type": "string"},
+      "date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"}},
+      "required": ["operator", "from_station", "to_station", "date"]}}},
+  {"type": "function", "function": {"name": "create_calendar_event", "description": "在使用者的行事曆新增活動。",
+    "parameters": {"type": "object", "properties": {
+      "title": {"type": "string"},
+      "date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+      "start_time": {"type": "string", "pattern": "^\\d{2}:\\d{2}$", "description": "24 小時制 HH:MM"}},
+      "required": ["title", "date", "start_time"]}}}
+]

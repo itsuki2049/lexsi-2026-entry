@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/itsuki2049/lexsi-2026-entry/data/schema/trajectory.schema.json",
+  "title": "EIRAKU T3 trajectory (eiraku.traj/0.1)",
+  "type": "object",
+  "required": ["schema_version", "run_id", "task_id", "model", "status", "events"],
+  "properties": {
+    "schema_version": {"const": "eiraku.traj/0.1"},
+    "run_id": {"type": "string"},
+    "task_id": {"type": "string"},
+    "model": {
+      "type": "object", "required": ["id"],
+      "properties": {"id": {"type": "string"}, "revision": {"type": ["string", "null"]}}
+    },
+    "seed": {"type": ["integer", "null"]},
+    "status": {"enum": ["completed", "error", "timeout"]},
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "t_start_ms", "t_end_ms"],
+        "properties": {
+          "type": {"enum": ["reasoning", "message", "tool_call", "tool_result", "final"]},
+          "t_start_ms": {"type": "number", "minimum": 0},
+          "t_end_ms": {"type": "number", "minimum": 0},
+          "text": {"type": "string"},
+          "call_id": {"type": ["string", "null"]},
+          "name": {"type": "string"},
+          "arguments": {"type": "object"},
+          "output": {},
+          "error": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "final_answer": {"type": ["string", "null"]},
+    "final_state": {"type": "object"},
+    "provenance": {"type": "object"}
+  }
+}
