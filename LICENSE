@@ -208,4 +208,4 @@ and synthetic trajectories) is Copyright 2026 EIRAKU (itsuki2049) and is
 released under Apache-2.0. Seed tasks and trajectories were authored by
 EIRAKU staff agents (Devin, Cognition) under direction of the EIRAKU team;
 the team holds and grants all rights. Provenance per file is recorded in
-data/trajectories/zh-Hant/MANIFEST.json.
+data/manifests/trajectories-zh-Hant.json.
