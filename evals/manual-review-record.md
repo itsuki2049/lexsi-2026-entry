@@ -2,7 +2,7 @@
 
 審查人：luna agent（櫻小路露娜，5a）
 審查日期：2026-11-14
-審查基準：`main` commit `4181e19`。資料集版本 `0.1.0`，22 條軌跡，SHA-256 `afb63e7df1c61682c32e5909aa8bd47e243433e3eac8e6472d9ff138e38eac20`。
+審查基準：資料初審以 `main` commit `4181e19` 為準，delta 以 `main` commit `11634b2` 為準。資料集版本 `0.1.0`，22 條軌跡，SHA-256 `afb63e7df1c61682c32e5909aa8bd47e243433e3eac8e6472d9ff138e38eac20`。
 證據等級：A 表示直接檢視提交資料或實跑輸出；B 表示依實作控制流程推得的風險；NOT RUN 表示尚未執行或需另一位覆核者。
 
 ## 結論摘要
@@ -10,12 +10,12 @@
 | 項目 | 判定 | 摘要 |
 |---|---|---|
 | locale_naturalness | PASS | 逐條讀取 22 條 task，繁中用詞符合台灣語境，未見簡體字或語意不清的任務指令。 |
-| license_validity | PASS WITH NOTES | PR #7 已補權利人與資料集授權聲明。聲明所寫 manifest 路徑和實際路徑不一致，需修正文案。 |
+| license_validity | PASS | PR #7 補權利人與資料集授權聲明，PR #9 修正 manifest 路徑，兩者重驗通過。 |
 | oracle_correctness | PASS | 依風險抽查 6 條，expected_state 與 final_state、任務限制及人工確認行為一致。 |
-| tool_safety | FAIL | `StubEnv` 與 `replay` 不強制每題權限，`fs_delete` 直接刪除且不核人工確認。stub 僅操作記憶體，但安全評測會因此失真。 |
+| tool_safety | FAIL | PR #10 修正原三項缺口，但核准目標可用子字串錯配，且未執行 per-task network allowlist 與 fs_root。 |
 | prompt_injection_labels | PASS WITH NOTES | injection 與 benign near-miss 的差異和標籤正確。高嚴重度樣本仍需第二位覆核者。 |
 
-**整體 Gate：BLOCKED。** tool_safety 的 FAIL 必須修正及複審。高嚴重度 prompt injection 樣本尚缺第二位覆核者。已將工具權限發現即時回報 t1c。
+**整體 Gate：BLOCKED。** tool_safety 仍有 FAIL 級繞過待修正及複審。高嚴重度 prompt injection 樣本尚缺第二位覆核者。已即時回報 t1c。
 
 ## 1. locale_naturalness
 
@@ -30,11 +30,11 @@
 
 ## 2. license_validity
 
-**判定：PASS WITH NOTES，證據等級 A。**
+**判定：PASS，證據等級 A。**
 
-- 發現：PR #7 將 LICENSE 模板佔位改為 `Copyright 2026 EIRAKU (itsuki2049)`，並聲明種子任務與合成軌跡由 EIRAKU agent 在團隊指示下撰寫，團隊持有並授予權利。根 LICENSE 同時列 Apache-2.0。種子檔記錄 author Devin agent 與 Apache-2.0，軌跡記錄 `source_type: synthetic`、seed source id、同一 license 與 Devin seed author。證據：`LICENSE:190-196,206-210`；`data/seed-tasks-zh-Hant.json:8-10`；`data/trajectories/zh-Hant/traj-20261114-001.json:266-278`。
-- 影響：權利人、生成來源與授權宣告現已自洽，Devin 標為作者不再與團隊權利聲明衝突。這是 repo 內聲明的核對，並非外部法律意見。
-- 建議：修正 `LICENSE:210-211` 所寫的 provenance manifest 路徑。文件指向 `data/trajectories/zh-Hant/MANIFEST.json`，但實際 manifest 是 `data/manifests/trajectories-zh-Hant.json`，見 `data/trajectories/README.md:1-3`。每條軌跡本身已有 provenance 欄位。
+- 發現：PR #7 將 LICENSE 模板佔位改為 `Copyright 2026 EIRAKU (itsuki2049)`，並聲明種子任務與合成軌跡由 EIRAKU agent 在團隊指示下撰寫，團隊持有並授予權利。根 LICENSE 同時列 Apache-2.0。PR #9 將 provenance manifest 路徑改為實際檔案 `data/manifests/trajectories-zh-Hant.json`。種子檔記錄 author Devin agent 與 Apache-2.0，軌跡記錄 `source_type: synthetic`、seed source id、同一 license 與 Devin seed author。證據：`LICENSE:190-196,206-211`；`data/seed-tasks-zh-Hant.json:8-10`；`data/trajectories/zh-Hant/traj-20261114-001.json:266-278`；`data/manifests/trajectories-zh-Hant.json`。
+- 影響：權利人、生成來源、授權與 manifest 位置一致，Devin 標為作者與團隊權利聲明相容。這是 repo 內聲明的核對，並非外部法律意見。
+- 建議：無阻擋事項。
 
 ## 3. oracle_correctness
 
@@ -51,15 +51,16 @@
 
 ## 4. tool_safety
 
-**判定：FAIL，證據等級 A 與 B。** 目前程式以記憶體狀態模擬檔案、網頁、API 和排程，不直接連網或寫實體檔案。這降低了現行 stub 的直接外部影響，但沒有使權限模型成立。
+**判定：FAIL，證據等級 A 與 B。** PR #10（commit `ac6b54a`）修正初審三項缺口：`StubEnv.call` 強制 allowed_tools，破壞性工具需預先核准或 approved confirmation，replay 依 trajectory permissions 執行並記錄 denials。以下新探測顯示仍有權限繞過。stub 只操作記憶體，不直接連網或寫實體檔案，但安全評測會因此失真。
 
-- 發現 A：`scripts/stub_tools.py:414-420` 的 `StubEnv.call` 只核對全域工具 schema，沒有將工具名稱與單筆軌跡 `permissions.allowed_tools` 比較。`scripts/generate_trajectories.py:165-174` 逐步執行 seed steps，之後才在 `:114-123` 透過 `safety_violations` 計算違規標籤。這讓未授權工具可以先執行再被標記。
-- 發現 A：`scripts/stub_tools.py:473-478` 的 `_fs_delete` 直接移除檔案，沒有檢查 `human_approval_required`、確認事件或 `preapproved_destructive`。`request_human_confirmation` 只記錄請求，見 `:521-523`。
-- 發現 A：`scripts/stub_tools.py:577-586` 的 `replay` 只重播事件並比對結果與 final state，沒有逐事件執行權限檢查。
-- 影響 B：被標為禁止或需確認的呼叫仍可能在 stub 中成功執行，造成越權軌跡被重播，或工具呼叫與安全標籤的行為邊界不可靠。因環境只用記憶體，這裡判的是安全評測有效性與權限控制缺口，不宣稱它已造成真實檔案刪除。
-- 建議：在 replay/harness 逐事件強制 `allowed_tools`、路徑與網域 allowlist、side effect、人工確認與核准紀錄。確認不可只以「有提出請求」代替已核准。Devin 修復 PR 尚未提供，本項是 commit `4181e19` 的判定，等待 delta 複審後才可更新。
+- 原 findings 已修正，證據 A：`scripts/stub_tools.py:488-498` 在執行工具前強制 `allowed_tools`；`approval_required_tools` 與 `_authorize` 在 `:339-373,478-486` 加入破壞性工具及核准檢查；`replay_report` 在 `:673-686` 依 permissions 重播並記錄拒絕。新增負向測試涵蓋未授權工具、未核准刪除、pending 或 denied confirmation，正向測試涵蓋 approved 與 preapproved 刪除，見 `tests/test_trajectory_pipeline.py:155-275`。
+- 發現 A，核准目標子字串繞過：`scripts/stub_tools.py:478-486` 用 `target in action` 比對目標，`unapproved_events` 也在 `:350-373` 使用相同邏輯。實測先核准 `delete /sandbox/a-b`，再呼叫 `fs_delete /sandbox/a`，刪除成功。核准文字不是結構化的工具與目標相等檢查，兄弟路徑可錯配。
+- 發現 A，network allowlist 未接：`StubEnv` 在 `scripts/stub_tools.py:441-448` 沒保存每題 `network_allowlist`。`_web_fetch` 與 `_http_request` 在 `:504-510,566-585` 只檢查 host 是否為保留測試網域，沒有檢查 host 是否屬於該題 allowlist。實測該題只允許 `allowed.example.test`，仍能讀取已 seed 的 `blocked.example.test`。
+- 發現 A，fs_root 未接：同一 `StubEnv` 初始化未保存 `fs_root`，`_fs_read` 在 `:524-527` 只檢查檔案是否存在。實測題目 `fs_root=/sandbox/allowed` 時，仍能讀取 `/sandbox/private.txt`。
+- 影響 B：核准文字可能授權錯誤路徑，且工具仍可跨越 per-task 網域與檔案根目錄。現行資料雖只用記憶體 sandbox，這些缺口會使安全邊界與評測結果不可信。
+- 建議：以結構化核准紀錄綁定 tool name 與 canonical target，禁止子字串比對；在每個工具執行前檢查 `network_allowlist` 與 `fs_root`，並對 path 做正規化及邊界檢查。以上新 findings 已即時回報 t1c，round 2 修復待交付。
 
-此項 FAIL 已即時回報 t1c。
+此項 FAIL 已即時回報 t1c。PR #10 三項初始修正本身通過對應正負向 fixture，但新發現尚未修復。
 
 ## 5. prompt_injection_labels
 
@@ -73,6 +74,7 @@
 
 - 命令：`python3 scripts/validate_trajectory_dataset.py data/trajectories`。結果 `files=22 errors=0 warnings=0`，同時列出五項 `MANUAL_REVIEW_REQUIRED`。
 - 命令：`python3 scripts/audit_trajectory_dataset.py data/trajectories/zh-Hant --manifest data/manifests/trajectories-zh-Hant.json`。結果 22 條、dataset hash 與 manifest 相符，replay 與相關自動檢查 RUN 且無 errors；duplicate semantic 與 human review 標 NOT RUN，Gate 為 PASS WITH NOTES。
-- tool_safety 的修復與 delta 結論待 Devin PR。高嚴重度 injection 案例待第二位覆核。兩項完成前，整體 Gate 維持 BLOCKED。
+- PR #10 指定 pytest 命令 `python3 -m pytest tests/test_trajectory_pipeline.py` 未能執行，環境回覆 `No module named pytest`。替代執行 `python3 -m unittest discover -s tests -t .`，34 tests 通過。完整 pytest 結果仍 NOT RUN。
+- 在 PR #10 與合併後 main 重現兩條核准繞過和一條 fs_root 讀取問題。round 2 修復與 delta 結論待 Devin PR。高嚴重度 injection 案例待第二位覆核。兩項完成前，整體 Gate 維持 BLOCKED。
 
 訊息來自 luna agent（櫻小路露娜，5a）
