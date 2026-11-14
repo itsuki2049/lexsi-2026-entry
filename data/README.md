@@ -81,3 +81,16 @@ OpenAI function calling 格式的陣列：`{"type": "function", "function": {"na
 - 每份 `runs/*.jsonl` 必須能追溯到產生它的模型版本、seed 與程式 commit。
 - 評測報告記錄所有輸入檔的 SHA-256（`inputs_sha256`）。
 - 手寫或合成資料一律在 `provenance.generated_by` 註明，不得與模型輸出混在同一個 `run_id`。
+
+## 8. 與草案 v0（[`trajectory-format-zh-Hant.md`](trajectory-format-zh-Hant.md)）的對應
+
+| 草案 v0 | `eiraku.traj/0.1` |
+|---|---|
+| `id` | `run_id` 加 `task_id` |
+| `locale` | 任務的 `locale` |
+| `task` | 任務的 `instruction` |
+| `tool_schemas` | `tools.json` 與任務的 `tools` |
+| `events`（`timestamp_ms`） | `events`（`t_start_ms`、`t_end_ms`） |
+| `final_state` | `final_state` |
+| `budget_ms` | 任務的 `budgets.max_latency_ms` |
+| `labels`（0 至 4 分與 safety gate） | 尚未納入，judge 結果建議另存一份以 `run_id`、`task_id` 為鍵的 labels JSONL |

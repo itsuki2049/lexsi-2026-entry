@@ -1,12 +1,18 @@
-# EIRAKU（永樂）Lexsi AI Safety & Alignment Hackathon 2026：T3 參賽專案
+# lexsi-2026-entry
+
+Lexsi AI Safety & Alignment Hackathon 2026 提交專案。EIRAKU（永樂）團隊出品。
+
+## 題目（一行 claim）
 
 **Claim：同一個 agent 在繁體中文（台灣）工具呼叫任務上的工具呼叫正確率低於英文對照題，落差主要來自表層格式（臺／台、民國年、千分位、12 小時制）而非任務理解，在執行邊界加入 zh-Hant 正規化可在不超出延遲預算的情況下收回大部分落差。**
+
+交付物：以繁體中文（zh-Hant）為評測語言，建立可重播的 agent 軌跡資料集與三指標評測框架（task success／tool-call accuracy／latency），外加獨立安全閘門。
 
 > 目前狀態：Round 1 骨架。上面的 claim 是待驗證的假說，`data/samples/runs/demo-handwritten.jsonl` 是手寫示範軌跡，不是模型輸出，任何數字都不能當成實驗結果引用。
 
 ## 賽道
 
-T3 agentic autonomy：量測 agent 的 tool-call 軌跡、任務成功率與延遲。語言差異化：繁體中文 zh-Hant（台灣語境，locale `zh-TW`）。
+Track 3：Agentic Fine-tuning（agentic autonomy、可靠工具呼叫、軌跡品質、reward-hacking 防護）。量測 agent 的 tool-call 軌跡、任務成功率與延遲。語言差異化：繁體中文 zh-Hant（台灣語境，locale `zh-TW`）。
 
 ## 方法概述
 
@@ -16,8 +22,9 @@ T3 agentic autonomy：量測 agent 的 tool-call 軌跡、任務成功率與延�
    - **任務成功率**：以程式化 oracle 判定（最終答案包含指定字串、最終狀態鍵值相等），不使用 LLM 評審。
    - **工具呼叫正確率**：工具名稱加引數的多重集合 precision／recall／F1，分 `exact`、`zh_norm`、`name` 三種比對模式；`exact` 與 `zh_norm` 的差就是「表層格式造成的落差」。另附 Schema 合法率。
    - **延遲**：每個事件的起訖時間戳，算出總延遲、模型時間、工具時間、首次工具呼叫時間的 mean／p50／p95／max。
-4. **交叉驗證**：`exact` 模式逐題對齊 [AuditKIT](https://github.com/Lexsi-Labs/AuditKIT) `ToolCallF1`（`make xcheck`），確保自製指標與官方評測 kit 一致。
-5. **介入**：在工具執行邊界加入 zh-Hant 正規化層，比較介入前後的成功率、工具呼叫 F1 與延遲；並檢查繁中回答中的簡體字洩漏。
+4. **人工與 LLM judge 評分**：程式化指標之外，依 [`evals/trajectory-judge-rubric-zh-Hant.md`](evals/trajectory-judge-rubric-zh-Hant.md) 給三項 0 至 4 分與獨立 safety gate，入庫前過 [`evals/dataset-quality-safety-gate-zh-Hant.md`](evals/dataset-quality-safety-gate-zh-Hant.md)。
+5. **交叉驗證**：`exact` 模式逐題對齊 [AuditKIT](https://github.com/Lexsi-Labs/AuditKIT) `ToolCallF1`（`make xcheck`），確保自製指標與官方評測 kit 一致。
+6. **介入**：在工具執行邊界加入 zh-Hant 正規化層，比較介入前後的成功率、工具呼叫 F1 與延遲；並檢查繁中回答中的簡體字洩漏。
 
 六個 Lexsi kit 與 T3 的關係見 [`docs/kit-features.md`](docs/kit-features.md)，59 小時執行計畫見 [`docs/PLAN.md`](docs/PLAN.md)。
 
@@ -47,13 +54,20 @@ make xcheck PY=.venv/bin/python
 README.md                 題目 claim 與方法
 docs/kit-features.md      六個 Lexsi kit 的 T3 功能清單（固定 commit）
 docs/PLAN.md              59 小時執行計畫
-data/README.md            zh-Hant 軌跡資料格式規範
+data/README.md            zh-Hant 軌跡資料格式規範（eiraku.traj/0.1，harness 實作）
+data/trajectory-format-zh-Hant.md  軌跡格式草案 v0（labels、budget_ms）
 data/schema/              task 與 trajectory 的 JSON Schema
 data/samples/             成對示範任務、工具定義、手寫示範軌跡
 evals/                    評測 harness（metrics、normalize、schema、run）
+evals/*-zh-Hant.md        judge rubric 與資料品質安全 gate
+submission/               write-up 與提交材料（產出中）
 evals/adapters/           AgentTune EventLog 轉接、AuditKIT 交叉驗證
 evals/tests/              單元測試
 ```
+
+## 團隊
+
+EIRAKU（永樂）：早瀨優香統籌、櫻小路露娜評測裁判與安全把關、himari（明星日鞠）工程、Devin（Cognition）支援。
 
 ## 授權
 
