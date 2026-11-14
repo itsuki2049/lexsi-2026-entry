@@ -18,7 +18,7 @@
 
 Stage 1 交付三項成果。一，可重播的 zh-Hant 軌跡資料集：22 個台灣情境種子任務，以離線 stub 工具集產生 22 條軌跡，含 9 個風險相關案例（1 個為 benign near-miss 對照），位元組層級可重現。二，三指標評測 harness（task success、tool-call accuracy、latency），工具呼叫 F1 分 `exact` 與 `zh_norm` 兩種比對，差值即表層格式落差，並逐題與 AuditKIT `ToolCallF1` 核對一致。三，judge rubric 與資料品質安全 gate，越權即 hard fail。
 
-目前沒有真實模型結果。手寫示範資料上 F1 由 0.167（`exact`）到 0.917（`zh_norm`），僅展示指標可行。資料集在暫代 validator 下為 `PASS WITH NOTES`，在正式 v0.1 validator 下為 `BLOCKED`；人工覆核與語意近重複檢查皆為 `NOT RUN`。
+目前沒有真實模型結果。手寫示範資料上 F1 由 0.167（`exact`）到 0.917（`zh_norm`），僅展示指標可行。資料集在正式 v0.1 validator 下為 **PASS（errors=0, warnings=0）**；`duplicate_semantic`（語意近重複）與人工覆核（locale 自然度、license、oracle 正確性、工具安全、prompt injection 標籤）標記 `MANUAL_REVIEW_REQUIRED`，覆核進行中。
 
 ## Headline Number｜關鍵數字（before → after）
 
@@ -120,7 +120,7 @@ judge rubric 與安全 gate 由櫻小路露娜（luna）制定，見 [`evals/tra
 1. **harness 示範**（`make demo`）：8 題手寫示範軌跡，產出 `results/demo.json`，記錄輸入檔 SHA-256，同輸入保證同輸出（測試 `test_deterministic`）。
 2. **AuditKIT 交叉驗證**（`make xcheck`）：8 個 episode 的 `exact` F1 與 exact match 與 AuditKIT `ToolCallF1` 完全一致；每個 episode 也經 `to_eventlog` 轉成 AgentTune `EventLog`，再由 AuditKIT `episode_from_eventlog` 讀回，工具呼叫不變。
 3. **軌跡產生**：22 個種子在 stub 環境重播，`generate_trajectories.py --check` 確認輸出與種子檔位元組一致。
-4. **入庫 gate**：分別以暫代 validator（commit [`40c5dcd`](https://github.com/itsuki2049/lexsi-2026-entry/commit/40c5dcd1f4e7a97ec0c8c84f669eb716c9216437)）與正式 v0.1 validator（目前 `main`）檢查 22 條軌跡。軌跡檔在兩個 commit 之間沒有變動。
+4. **入庫 gate**：分別以暫代 validator（commit [`40c5dcd`](https://github.com/itsuki2049/lexsi-2026-entry/commit/40c5dcd1f4e7a97ec0c8c84f669eb716c9216437)）與正式 v0.1 validator（目前 `main`）檢查 22 條軌跡。軌跡檔已於 PR #5 遷移至 v0.1 入庫契約（22 條全數通過正式 validator，errors=0）。
 5. **負向 fixture**：20 個單檔錯誤（secret、PII、越權標成 pass、竄改重播結果、簡體字、破折號等）與 4 個資料集層級錯誤（重複 id、重複內容、split 洩漏、manifest 不符）。
 
 規劃中，Stage 1 **NOT RUN**：2 個模型 × 成對任務 × 3 seeds 的 baseline；介入 A（執行邊界正規化）與介入 B（system prompt 明示台灣格式）；以 `pair_id` 做配對 bootstrap 信賴區間；LLM judge 與人工 label 一致率校準。
