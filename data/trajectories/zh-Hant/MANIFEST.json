@@ -1,0 +1,58 @@
+{
+  "dataset": "eiraku-zh-hant-agent-trajectories",
+  "version": "0.1.0",
+  "format": "data/trajectory-format-zh-Hant.md v0",
+  "toolset": "eiraku-stub/0.1",
+  "generator_version": "0.1.0",
+  "seed_sha256": "d6b67dc366d049d0dea21197cec6b94cbccf759a369c2c4a2697d583b6db5a07",
+  "count": 22,
+  "locales": {
+    "zh-Hant-TW": 22
+  },
+  "categories": {
+    "api_integration": 5,
+    "data_cleaning": 4,
+    "file_organization": 4,
+    "scheduling_automation": 4,
+    "web_verification": 5
+  },
+  "splits": {
+    "dev": 7,
+    "test": 3,
+    "train": 12
+  },
+  "risk_categories": {
+    "destructive_action": 2,
+    "external_contact": 1,
+    "misinformation": 3,
+    "none": 13,
+    "pii_handling": 1,
+    "prompt_injection": 1,
+    "prompt_injection_near_miss": 1
+  },
+  "files": {
+    "traj-20261114-001.json": "5208b2690bf653f8819872bd3a162f50dc67579c7b4479d8085fde7aeb62881d",
+    "traj-20261114-002.json": "979b80cfc9ce19f8f594c51dce8e5bd5be48f6407a948bdf9c7c5bcefa536b2d",
+    "traj-20261114-003.json": "95eea39b20bf6cbb944da44f3902e5d3b809dc5ff1d0c4e5aee18d902575c143",
+    "traj-20261114-004.json": "8a0e6f50348e3184fa8f2d9c990919e9a2458afbcfa9bc1d445d272ec8128b0c",
+    "traj-20261114-005.json": "9d3e34c1723fd0d833be83f5e953b5e3f139d00f02d7f72915dafbacd313346e",
+    "traj-20261114-006.json": "126f126725ff7ee2a689d3532d0abdfbed0a09ec999823adf0b04c7448cea32a",
+    "traj-20261114-007.json": "bf926060314f4342b0e73da6278c8739cf73a61a5b26e31e209e126cec757d32",
+    "traj-20261114-008.json": "1d2a52ceb9c850192ae26bb1bbd4a35c7d2e43864c0dd58d05e76a38cca55883",
+    "traj-20261114-009.json": "311a333b4fa3d8c5bc207fd5a559ea1ff2c4a7f0351f0b898f6edc0aeac0e463",
+    "traj-20261114-010.json": "6b98afda3731081c77e414ed7a3d43b0342fdd7f3f620b944cd3451d43c0e3d0",
+    "traj-20261114-011.json": "8f42968a6d6d6260526e81d3b5b78cb3fa495e1a23666e5cc326f5c50f5d4e1f",
+    "traj-20261114-012.json": "5805503068df66369accd680436dddbd06423aaff731e9c52e6a9bc8d7b59674",
+    "traj-20261114-013.json": "c33d9ec98a4e58ba236a496a58e3c76cf79bea0c9ed992dc87f10bde5d8fa4fe",
+    "traj-20261114-014.json": "d89e0e00645098b9d19ac3a9e338a43544c635c6cd59b380c5039a4c55f0aaac",
+    "traj-20261114-015.json": "40647027729e18e5201e6eacd0bada6a5d91434da027c029fc1728f31a1cc9aa",
+    "traj-20261114-016.json": "6bda4e639b397addb4d8bbe0bd925c10e125b7c8d2e8df6e298984cd5d4bf4a9",
+    "traj-20261114-017.json": "b5e5c89d10fa03f62af8beacafe6f18f6e96740c573a736b446bbbc81a862058",
+    "traj-20261114-018.json": "b485aa86b79961597666d96644f8c270a95a319373fcda3af337041d7fd7677e",
+    "traj-20261114-019.json": "9a923a32d2ff136ed095fc709b3902143229d95cf46d58d3585b8e4beeaf582f",
+    "traj-20261114-020.json": "8590c0bcf11b362047f7250e01b3a2d92a2a3085a1410bd3ae3cc8de5889a571",
+    "traj-20261114-021.json": "b9dff909e6c421e663f3378231283fe96f20a066f27c7d0dbcdeeb6623ea4a91",
+    "traj-20261114-022.json": "10eb896fab7dbff547d4da73861fe8ef0116957f38528a38b7bac67cd1334503"
+  },
+  "dataset_sha256": "864ea14b9b8f4c37629cd46767cc9e207b0a24814156b3c6462b7dc349de1d80"
+}
