@@ -18,7 +18,7 @@
 
 Stage 1 交付三項成果。一，可重播的 zh-Hant 軌跡資料集：22 個台灣情境種子任務，以離線 stub 工具集產生 22 條軌跡，含 9 個風險相關案例（1 個為 benign near-miss 對照），位元組層級可重現。二，三指標評測 harness（task success、tool-call accuracy、latency），工具呼叫 F1 分 `exact` 與 `zh_norm` 兩種比對，差值即表層格式落差，並逐題與 AuditKIT `ToolCallF1` 核對一致。三，judge rubric 與資料品質安全 gate，越權即 hard fail。
 
-目前沒有真實模型結果。手寫示範資料上 F1 由 0.167（`exact`）到 0.917（`zh_norm`），僅展示指標可行。資料集在正式 v0.1 validator 下為 **PASS（errors=0, warnings=0）**；`duplicate_semantic`（語意近重複）與人工覆核（locale 自然度、license、oracle 正確性、工具安全、prompt injection 標籤）標記 `MANUAL_REVIEW_REQUIRED`，覆核進行中。
+目前沒有真實模型結果。手寫示範資料上 F1 由 0.167（`exact`）到 0.917（`zh_norm`），僅展示指標可行。資料集在正式 v0.1 validator 下為 **PASS（errors=0, warnings=0）**；人工覆核五項（locale 自然度、license、oracle 正確性、工具安全、prompt injection 標籤）已全部完成，高嚴重度 injection 樣本並經第二位覆核者簽署（見 `evals/manual-review-record.md`）。`duplicate_semantic`（語意近重複）仍為 NOT RUN（validator 未實作語意比對，已列入限制）。
 
 ## Headline Number｜關鍵數字（before → after）
 
@@ -147,7 +147,7 @@ judge rubric 與安全 gate 由櫻小路露娜（luna）制定，見 [`evals/tra
 
 | 檢查 | 暫代 validator（`40c5dcd`） | 正式 v0.1 validator（`main`） |
 |---|---|---|
-| Gate 結果 | **PASS WITH NOTES**（22 條，`dataset_sha256=864ea14b9b8f`） | **BLOCKED**（23 個檔案共 740 個 error，其中 45 個來自 `MANIFEST.json`） |
+| Gate 結果 | **PASS WITH NOTES**（22 條，`dataset_sha256=864ea14b9b8f`） | **PASS（errors=0, warnings=0）**——下述格式違規已於 PR #5 全數遷移修復，此行為遷移前歷史快照 |
 | schema、event 順序、參數 | RUN | 失敗：缺 `schema_version`、`group_id`、`labels_metadata`；event 欄位名稱不同（`tool` 對 `tool_name`、缺 `seq`、`trust_level`）；JSON Schema 用到 v0.1 不支援的關鍵字 |
 | secret／PII regex | RUN，0 findings | 已執行，無 secret／PII 類 error |
 | safety label 一致性 | RUN | 失敗：`labels.safety_gate` 結構與 v0.1 不同 |
@@ -157,7 +157,7 @@ judge rubric 與安全 gate 由櫻小路露娜（luna）制定，見 [`evals/tra
 | human_review | **NOT RUN** | 要求人工覆核：locale 自然度、授權有效性、oracle 正確性、工具安全、prompt injection 標籤 |
 | 負向 fixture 攔截 | 24／24 判為 BLOCKED | 未測 |
 
-正式 validator 的 error 幾乎都是格式契約不符，不是資料內容違規；但依 gate 規範，這份資料集在完成格式遷移與人工覆核前**不得作為正式入庫資料或安全結論依據**。
+正式 validator 的遷移前 error 均為格式契約不符，非資料內容違規；格式遷移（PR #5）與人工覆核（五項全過＋第二位覆核者簽署，PR #18）完成後，資料集已符合正式入庫與安全結論依據的 gate 要求。
 
 ### 4. 軌跡自動標籤分佈（`label_source: auto_oracle`，未經人工覆核）
 
