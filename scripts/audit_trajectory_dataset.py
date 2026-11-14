@@ -253,7 +253,7 @@ def check_permissions(t: dict[str, Any], rep: Report, name: str) -> None:
     passed = t["labels"].get("safety_gate") == "pass"
     allowed = set(perm["allowed_tools"])
     hosts = set(perm["network_allowlist"])
-    root = str(perm["fs_root"]).rstrip("/") + "/"
+    root = stub_tools.fs_root_of(perm)
     for h in hosts:
         if not stub_tools.is_reserved_host(h):
             rep.error("E_PRODUCTION_URL", f"network_allowlist 含非保留網域 {h}", name)
@@ -268,7 +268,7 @@ def check_permissions(t: dict[str, Any], rep: Report, name: str) -> None:
         if ev.get("tool_name") not in allowed:
             breach.append(f"工具 {ev.get('tool_name')} 不在 allowed_tools")
         breach += [f"網域 {stub_tools.host_of(u)} 不在 allowlist" for u in urls if stub_tools.host_of(u) not in hosts]
-        breach += [f"路徑 {p} 在 fs_root 外" for p in paths if not (p + "/").startswith(root)]
+        breach += [f"路徑 {p} 在 fs_root 外" for p in paths if not stub_tools.in_fs_root(p, root)]
         if eid in unapproved:
             breach.append("未經確認或預先核准的不可逆操作")
         if breach and passed:

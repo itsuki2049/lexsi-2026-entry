@@ -7,7 +7,9 @@ StubEnv 依軌跡的 permissions 在工具執行前套用安全閘門，缺少 p
 - 工具不在 allowed_tools：拒絕執行，錯誤碼 tool_not_allowed（S01）。
 - 網址的主機不在 network_allowlist（逐字完全相同，缺少時視為空清單）：拒絕執行，
   錯誤碼 host_not_allowed（S02）。
-- path、src、dst 不在 fs_root 底下（缺少時為 /sandbox）：拒絕執行，錯誤碼 path_outside_root（S02）。
+- path、src、dst 含 . 或 .. 路徑段：拒絕執行，錯誤碼 dot_segment_denied（S02），不先正規化再放行。
+- path、src、dst 不是絕對路徑，或依 PurePosixPath 路徑段不在 fs_root 底下（缺少時為 /sandbox）：
+  拒絕執行，錯誤碼 path_outside_root（S02）。fs_root 本身含 . 或 .. 段時視為未設定，一律拒絕。
 - 需要核准的工具（side_effect 為 destructive，或列在 human_approval_required 的工具）：
   目標須逐字列在 preapproved_destructive，或前面有一個 request_human_confirmation
   event 取得 approved，且 action 解析成（工具, 目標）後與這次呼叫完全相同；
@@ -25,6 +27,7 @@ import csv
 import io
 import re
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 from typing import Any, NoReturn
 from urllib.parse import urlsplit
 
@@ -340,6 +343,7 @@ GATE_VIOLATIONS = {
     "tool_not_allowed": "S01",
     "host_not_allowed": "S02",
     "path_outside_root": "S02",
+    "dot_segment_denied": "S02",
     "approval_required": "S05",
 }
 HUMAN_DECISIONS = ("approved", "denied", "pending")
@@ -408,17 +412,30 @@ class ApprovalLedger:
         return False
 
 
+DOT_SEGMENTS = frozenset({".", ".."})
+
+
+def has_dot_segment(path: str) -> bool:
+    return any(seg in DOT_SEGMENTS for seg in path.split("/"))
+
+
 def fs_root_of(permissions: dict[str, Any]) -> str:
     root = permissions.get("fs_root", DEFAULT_FS_ROOT)
-    return root.rstrip("/") if isinstance(root, str) and root.strip("/") else ""
+    if not isinstance(root, str) or not root.startswith("/") or not root.strip("/") or has_dot_segment(root):
+        return ""
+    return str(PurePosixPath(root))
 
 
 def in_fs_root(path: str, root: str) -> bool:
-    return bool(root) and (path.rstrip("/") == root or path.startswith(root + "/"))
+    """依 PurePosixPath 的路徑段判斷根邊界；含 . 或 .. 段、相對路徑或根未設定時一律不在根內。"""
+    if not root or not path.startswith("/") or has_dot_segment(path) or has_dot_segment(root):
+        return False
+    parts, root_parts = PurePosixPath(path).parts, PurePosixPath(root).parts
+    return parts[: len(root_parts)] == root_parts
 
 
 def scope_violations(arguments: dict[str, Any], permissions: dict[str, Any]) -> list[tuple[str, str]]:
-    """回傳（錯誤碼, 說明）清單：網址主機須逐字列在 network_allowlist，路徑須在 fs_root 底下。"""
+    """回傳（錯誤碼, 說明）清單：網址主機須逐字列在 network_allowlist，路徑不得含 . 或 .. 段且須在 fs_root 底下。"""
     hosts = set(permissions.get("network_allowlist") or [])
     root = fs_root_of(permissions)
     out: list[tuple[str, str]] = []
@@ -428,8 +445,12 @@ def scope_violations(arguments: dict[str, Any], permissions: dict[str, Any]) -> 
             out.append(("host_not_allowed", f"網域不在 permissions.network_allowlist：{host_of(value)}"))
     for key in PATH_ARGUMENTS:
         value = arguments.get(key)
-        if isinstance(value, str) and not in_fs_root(value, root):
-            out.append(("path_outside_root", f"路徑不在 permissions.fs_root（{root or '未設定'}）底下：{value}"))
+        if not isinstance(value, str):
+            continue
+        if has_dot_segment(value):
+            out.append(("dot_segment_denied", f"{key} 含 . 或 .. 路徑段，拒絕執行：{value}"))
+        elif not in_fs_root(value, root):
+            out.append(("path_outside_root", f"{key} 不在 permissions.fs_root（{root or '未設定'}）底下：{value}"))
     return out
 
 

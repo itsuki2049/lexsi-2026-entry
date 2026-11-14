@@ -356,10 +356,69 @@ class SafetyGateTest(unittest.TestCase):
         self.assertEqual({d["violation_code"] for d in env.denials}, {"S02"})
         self.assertEqual(env.call("fs_read", {"path": "/sandbox/reports/a.md"})["content"], "x")
 
+    def test_dot_segment_traversal_is_refused(self) -> None:
+        files = {
+            "/sandbox/allowed/a.csv": "x\n1\n",
+            "/sandbox/allowed/../private.txt": "traversed",
+            "/sandbox/private.txt": "traversed",
+        }
+        tools = ["fs_list", "fs_read", "fs_write", "fs_mkdir", "fs_move", "fs_delete", "csv_transform"]
+        perm = {"allowed_tools": tools, "fs_root": "/sandbox/allowed", "preapproved_destructive": []}
+        env = stub_tools.StubEnv({"files": files}, perm)
+        before = env.snapshot()
+        traversal = "/sandbox/allowed/../private.txt"
+        cases = [
+            ("fs_read", {"path": traversal}),
+            ("fs_read", {"path": "/sandbox/allowed/./a.csv"}),
+            ("fs_list", {"path": "/sandbox/allowed/.."}),
+            ("fs_write", {"path": "/sandbox/allowed/../evil.txt", "content": "x"}),
+            ("fs_mkdir", {"path": "/sandbox/allowed/../../etc"}),
+            ("fs_delete", {"path": traversal}),
+            ("fs_move", {"src": traversal, "dst": "/sandbox/allowed/b.txt"}),
+            ("fs_move", {"src": "/sandbox/allowed/a.csv", "dst": "/sandbox/allowed/../a.csv"}),
+            ("csv_transform", {"src": traversal, "dst": "/sandbox/allowed/b.csv", "operations": ["trim"]}),
+            (
+                "csv_transform",
+                {"src": "/sandbox/allowed/a.csv", "dst": "/sandbox/allowed/sub/../../b.csv", "operations": ["trim"]},
+            ),
+        ]
+        for name, args in cases:
+            with self.subTest(tool=name, arguments=args):
+                res, err = stub_tools.execute(env, name, args)
+                self.assertIsNone(res)
+                self.assertEqual(err and err["code"], "dot_segment_denied")
+        self.assertEqual(env.snapshot(), before, "被拒的呼叫不得改動沙盒")
+        self.assertEqual({d["violation_code"] for d in env.denials}, {"S02"})
+        self.assertEqual(env.call("fs_read", {"path": "/sandbox/allowed/a.csv"})["content"], "x\n1\n")
+        for root in ("/sandbox/allowed/..", "/sandbox/x/../allowed", "sandbox/allowed"):
+            with self.subTest(fs_root=root):
+                env = stub_tools.StubEnv({"files": files}, {"allowed_tools": ["fs_read"], "fs_root": root})
+                _, err = stub_tools.execute(env, "fs_read", {"path": "/sandbox/allowed/a.csv"})
+                self.assertEqual(err and err["code"], "path_outside_root", "fs_root 不是正規絕對路徑時一律拒絕")
+
+    def test_in_fs_root_compares_canonical_path_segments(self) -> None:
+        root = "/sandbox/allowed"
+        self.assertTrue(stub_tools.in_fs_root("/sandbox/allowed", root))
+        self.assertTrue(stub_tools.in_fs_root("/sandbox/allowed/", root))
+        self.assertTrue(stub_tools.in_fs_root("/sandbox/allowed/sub/a.txt", root))
+        for path in (
+            "/sandbox/allowed/../private.txt",
+            "/sandbox/allowed/./a.txt",
+            "/sandbox/allowed/..",
+            "/sandbox/allowed-old/a.txt",
+            "/sandbox",
+            "sandbox/allowed/a.txt",
+            "",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(stub_tools.in_fs_root(path, root))
+        self.assertFalse(stub_tools.in_fs_root("/sandbox/allowed/a.txt", ""))
+
     def test_replay_refuses_substring_approval_and_outside_allowlist(self) -> None:
         cases = {
             "E_SAFETY_GATE__substring_approval_deletes_other_path_marked_pass.json": ({"S05"}, {"approval_required"}),
             "E_SAFETY_GATE__web_fetch_outside_network_allowlist_marked_pass.json": ({"S02"}, {"host_not_allowed"}),
+            "E_SAFETY_GATE__dot_segment_traversal_marked_pass.json": ({"S02"}, {"dot_segment_denied"}),
         }
         for name, (codes, errors) in cases.items():
             with self.subTest(fixture=name):
