@@ -12,10 +12,10 @@
 | locale_naturalness | PASS | 逐條讀取 22 條 task，繁中用詞符合台灣語境，未見簡體字或語意不清的任務指令。 |
 | license_validity | PASS | PR #7 補權利人與資料集授權聲明，PR #9 修正 manifest 路徑，兩者重驗通過。 |
 | oracle_correctness | PASS | 依風險抽查 6 條，expected_state 與 final_state、任務限制及人工確認行為一致。 |
-| tool_safety | FAIL | PR #14 阻擋核准錯配、未允許網域、根目錄外及 dot segment 路徑，但 `preapproved_destructive` 仍可替非 destructive 工具授權。 |
+| tool_safety | PASS | PR #16 限定 `preapproved_destructive` 只能由 destructive 工具消耗；第五輪 `fs_write` 反例被拒，原核准 `fs_delete` 正向案例仍成功。 |
 | prompt_injection_labels | PASS WITH NOTES | injection 與 benign near-miss 的差異和標籤正確。高嚴重度樣本仍需第二位覆核者。 |
 
-**整體 Gate：BLOCKED。** `preapproved_destructive` 跨工具授權仍待修正及複審。高嚴重度 prompt injection 樣本尚缺第二位覆核者。已即時回報 t1c。
+**整體 Gate：BLOCKED。** tool_safety 已通過並關項。資料安全閘仍依 `evals/dataset-quality-safety-gate-zh-Hant.md:32-38` 等待高嚴重度 prompt injection 樣本的第二位覆核者；此獨立條件完成前不可解除整體 BLOCKED。
 
 ## 1. locale_naturalness
 
@@ -73,9 +73,19 @@
 - 同腳本重跑前三輪的核准錯配、network allowlist、fs_root 外路徑，分別得到 `approval_required`、`host_not_allowed`、`path_outside_root`。`/sandbox/allowed/../private.txt` 得到 `dot_segment_denied`。root prefix sibling `/sandbox/reports-old/a.md` 也得到 `path_outside_root`。證據：回歸測試 `tests/test_trajectory_pipeline.py:268-376` 及本地逐項重現輸出。
 - 新發現 A，preapproved 跨工具授權：`approval_required_tools` 將 `human_approval_required` 指定的工具加入核准集合，見 `scripts/stub_tools.py:349-352`。但 `ApprovalLedger.consume` 對所有工具只檢查目標是否出現在 `preapproved_destructive`，沒有驗證目前工具是否屬於 destructive，見 `:388-408`。重現設定 `allowed_tools=[fs_write]`、`human_approval_required=[fs_write]`、`preapproved_destructive=[/sandbox/a]`，呼叫覆寫 `/sandbox/a` 的 `fs_write`，結果成功寫入 `new`，未要求 fs_write 專屬確認。證據為本地第五輪 probe。
 - 影響 B：針對破壞性操作的路徑預核准可被轉用來授權不同工具的寫入或覆寫，與 PR #12 的 `(tool, target)` 精確核准界線不一致。
-- 建議：只允許 `side_effect=destructive` 的工具消耗 `preapproved_destructive`，或將預先核准記為精確 `(tool, target)` key。此 finding 已即時回報 t1c，round 4 修復待交付。
+- 建議：當時建議只允許 `side_effect=destructive` 的工具消耗 `preapproved_destructive`，或將預先核准記為精確 `(tool, target)` key。此 finding 已即時回報 t1c，後由 PR #16 修復。
 
-此項仍判 FAIL。PR #14 三條歷史重現及 dot segment 重現均已通過阻擋，preapproved 跨工具授權仍未修復。
+第五輪發現於 PR #16 修復，終驗結果記於下一節。
+
+### round 6 delta：PR #16 preapproved destructive 跨工具修復終驗
+
+- 審查基準：PR #16 合併後 `main` commit `2e9b79b`，修補 commit `e7be598`。Diff 將 destructive 工具集合提升為共用常數，`ApprovalLedger.consume` 僅在 `name in DESTRUCTIVE_TOOLS` 且目標逐字命中時接受預核准，見 `scripts/stub_tools.py:355-416`。一般人工核准仍以精確 `(tool, target)` 比對並一次性消耗。
+- 專屬測試有實質斷言，見 `tests/test_trajectory_pipeline.py:318-336`：`fs_write` 覆寫得到 `approval_required` 與 S05，原檔維持 `x`；同一目標的預核准仍讓 `fs_delete` 成功；靜態重播只將未核准 `fs_write` 標為違規。測試也已接入 safety fixture 預期表，見 `tests/test_trajectory_pipeline.py:430-447`。
+- 獨立重跑第五輪反例：`fs_write` 回 `approval_required`，denial 為 S05，`/sandbox/a` 仍為 `x`。正向對照 `fs_delete` 回 `deleted: true` 且檔案消失。追加探測確認精確人工核准可執行一次，第二次同工具同目標呼叫被 `approval_required` 拒絕，檔案內容不再改變。
+- 回歸測試：`python3 -m unittest discover -s tests -t .`，43 tests 通過。資料集 audit 命令 `python3 scripts/audit_trajectory_dataset.py data/trajectories/zh-Hant --manifest data/manifests/trajectories-zh-Hant.json` 的目標資料集為 22 條，manifest 相符，Gate `PASS WITH NOTES`；human_review 與 duplicate_semantic 未執行。Audit 同時輸出預期的 invalid fixture 負例，未影響目標資料集結果。
+- 發現：PR #16 以 destructive side effect 類型和 exact target 限定路徑預核准，修復第五輪的跨工具授權。影響：核准給刪除的目標不能再用於 `fs_write` 覆寫，符合權限模型。建議：無新增修正；保留本次專屬正反向測試。
+
+**tool_safety 判定：PASS，round 6 終驗關項。整體 Gate 仍為 BLOCKED，原因僅為另一項既有資料發佈條件：高嚴重度 prompt injection 樣本尚缺第二位人工覆核者。**
 
 ## 5. prompt_injection_labels
 
@@ -91,6 +101,6 @@
 - 命令：`python3 scripts/audit_trajectory_dataset.py data/trajectories/zh-Hant --manifest data/manifests/trajectories-zh-Hant.json`。結果 22 條、dataset hash 與 manifest 相符，replay 與相關自動檢查 RUN 且無 errors；duplicate semantic 與 human review 標 NOT RUN，Gate 為 PASS WITH NOTES。
 - PR #10 指定 pytest 命令 `python3 -m pytest tests/test_trajectory_pipeline.py` 未能執行，環境回覆 `No module named pytest`。替代 unittest 執行在 PR #10 為 34 tests 通過，在 PR #12 main 為 40 tests 通過，在 PR #14 main 為 42 tests 通過。完整 pytest 結果仍 NOT RUN。
 - PR #14 main 的完整資料集 audit 為 22 條，replay、manifest、相關自動檢查 RUN，沒有錯誤；human review 與語意近重複檢查仍 NOT RUN。
-- PR #14 修正 dot segment 邊界。第五輪探測發現 preapproved 跨工具核准，待 Devin round 4 修復。高嚴重度 injection 案例待第二位覆核。兩項完成前，整體 Gate 維持 BLOCKED。
+- PR #16 修正 preapproved 跨工具核准，tool_safety 已 PASS。高嚴重度 injection 案例仍待第二位覆核，因此整體 Gate 維持 BLOCKED。
 
 訊息來自 luna agent（櫻小路露娜，5a）
