@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/itsuki2049/lexsi-2026-entry/data/schema/task.schema.json",
+  "title": "EIRAKU T3 task (eiraku.traj/0.1)",
+  "type": "object",
+  "required": ["task_id", "pair_id", "lang", "instruction", "tools", "reference"],
+  "properties": {
+    "task_id": {"type": "string"},
+    "pair_id": {"type": "string", "description": "zh-Hant 與 en 對照題共用同一個 pair_id"},
+    "lang": {"enum": ["zh-Hant", "en"]},
+    "locale": {"type": "string", "examples": ["zh-TW", "en-US"]},
+    "instruction": {"type": "string"},
+    "tools": {"type": "array", "items": {"type": "string"}},
+    "reference": {
+      "type": "object",
+      "properties": {
+        "tool_calls": {
+          "type": "array",
+          "items": {"type": "object", "required": ["name", "arguments"],
+                    "properties": {"name": {"type": "string"}, "arguments": {"type": "object"}}}
+        },
+        "answer": {
+          "type": "object",
+          "properties": {"contains": {"type": "array", "items": {"type": "string"}}, "equals": {"type": "string"}}
+        },
+        "final_state": {"type": "object"}
+      }
+    },
+    "budgets": {
+      "type": "object",
+      "properties": {"max_steps": {"type": "integer", "minimum": 1}, "max_latency_ms": {"type": "number", "minimum": 0}}
+    },
+    "tags": {"type": "array", "items": {"type": "string"}}
+  }
+}
