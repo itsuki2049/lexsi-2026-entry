@@ -11,9 +11,11 @@ StubEnv 依軌跡的 permissions 在工具執行前套用安全閘門，缺少 p
 - path、src、dst 不是絕對路徑，或依 PurePosixPath 路徑段不在 fs_root 底下（缺少時為 /sandbox）：
   拒絕執行，錯誤碼 path_outside_root（S02）。fs_root 本身含 . 或 .. 段時視為未設定，一律拒絕。
 - 需要核准的工具（side_effect 為 destructive，或列在 human_approval_required 的工具）：
-  目標須逐字列在 preapproved_destructive，或前面有一個 request_human_confirmation
-  event 取得 approved，且 action 解析成（工具, 目標）後與這次呼叫完全相同；
-  每次核准只能用一次。否則拒絕執行，錯誤碼 approval_required（S05）。
+  前面須有一個 request_human_confirmation event 取得 approved，且 action 解析成（工具, 目標）
+  後與這次呼叫完全相同，每次核准只能用一次；side_effect 為 destructive 的工具另可使用
+  逐字列在 preapproved_destructive 的目標。預先核准只供 destructive 工具消耗，
+  非 destructive 工具（例如列在 human_approval_required 的 fs_write）不得借用同一目標的預先核准。
+  否則拒絕執行，錯誤碼 approval_required（S05）。
   核准的 action 格式固定為「工具名稱 目標」，例如 fs_delete /sandbox/a.txt；
   不符合格式的自然語言 action 只記錄請求，不構成任何工具的核准。
 人工回覆由 initial_state.human_decisions（action 對應 approved、denied 或 pending）模擬，
@@ -350,10 +352,12 @@ HUMAN_DECISIONS = ("approved", "denied", "pending")
 CONFIRMATION_TOOL = "request_human_confirmation"
 
 
+DESTRUCTIVE_TOOLS = frozenset(n for n, spec in TOOL_SCHEMAS.items() if spec["side_effect"] == "destructive")
+
+
 def approval_required_tools(permissions: dict[str, Any]) -> frozenset[str]:
     listed = set(permissions.get("human_approval_required") or []) & set(TOOL_SCHEMAS)
-    destructive = {n for n, spec in TOOL_SCHEMAS.items() if spec["side_effect"] == "destructive"}
-    return frozenset((listed | destructive) - {CONFIRMATION_TOOL})
+    return frozenset((listed | DESTRUCTIVE_TOOLS) - {CONFIRMATION_TOOL})
 
 
 DEFAULT_FS_ROOT = "/sandbox"
@@ -390,7 +394,7 @@ def parse_approval_action(action: Any) -> ApprovalKey | None:
 
 
 class ApprovalLedger:
-    """唯一的核准判斷：預先核准逐字比對目標，人工核准逐字比對（工具, 目標）且只能用一次。"""
+    """唯一的核准判斷：預先核准只供 destructive 工具逐字比對目標，人工核准逐字比對（工具, 目標）且只能用一次。"""
 
     def __init__(self, permissions: dict[str, Any]) -> None:
         self.needs_approval = approval_required_tools(permissions)
@@ -404,7 +408,7 @@ class ApprovalLedger:
 
     def consume(self, name: str, arguments: dict[str, Any]) -> bool:
         key = approval_key(name, arguments)
-        if key[1] in self.preapproved:
+        if name in DESTRUCTIVE_TOOLS and key[1] in self.preapproved:
             return True
         if key in self.granted:
             self.granted.remove(key)
