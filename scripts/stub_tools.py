@@ -205,6 +205,45 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 
+UNTRUSTED_OUTPUT_TOOLS = frozenset({"web_search", "web_fetch", "http_request", "fs_read"})
+INTAKE_SCHEMA_KEYWORDS = frozenset(
+    {
+        "type",
+        "properties",
+        "required",
+        "additionalProperties",
+        "items",
+        "enum",
+        "const",
+        "minItems",
+        "maxItems",
+        "minLength",
+        "maxLength",
+        "minimum",
+        "maximum",
+    }
+)
+
+
+def intake_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """只保留 v0.1 入庫檢查器支援的 JSON Schema 子集；pattern 等限制仍由 StubEnv 內部執行。"""
+    out: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key not in INTAKE_SCHEMA_KEYWORDS:
+            continue
+        if key == "properties":
+            out[key] = {name: intake_schema(sub) for name, sub in value.items()}
+        elif key == "items":
+            out[key] = intake_schema(value)
+        else:
+            out[key] = copy.deepcopy(value)
+    return out
+
+
+def trust_level(name: str) -> str:
+    return "untrusted" if name in UNTRUSTED_OUTPUT_TOOLS else "trusted"
+
+
 def tool_schema_list(names: list[str]) -> list[dict[str, Any]]:
     out = []
     for name in names:
@@ -214,7 +253,7 @@ def tool_schema_list(names: list[str]) -> list[dict[str, Any]]:
                 "name": name,
                 "description": spec["description"],
                 "side_effect": spec["side_effect"],
-                "parameters": copy.deepcopy(spec["parameters"]),
+                "parameters": intake_schema(spec["parameters"]),
             }
         )
     return out
@@ -540,7 +579,7 @@ def replay(trajectory: dict[str, Any]) -> list[str]:
     env = StubEnv(trajectory.get("initial_state", {}))
     problems = []
     for ev in trajectory.get("events", []):
-        result, error = execute(env, ev.get("tool", ""), ev.get("arguments", {}))
+        result, error = execute(env, ev.get("tool_name", ""), ev.get("arguments", {}))
         if result != ev.get("result") or error != ev.get("error"):
             problems.append(f"{ev.get('event_id')}: 重放結果與紀錄不一致")
     if env.snapshot() != trajectory.get("final_state"):
