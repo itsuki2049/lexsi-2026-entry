@@ -187,7 +187,7 @@
       same "printed page" as the copyright notice for easier
       identification within third-party archives.
 
-   Copyright [yyyy] [name of copyright owner]
+   Copyright 2026 EIRAKU (itsuki2049)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -200,3 +200,12 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+---
+
+Dataset notice: the zh-Hant trajectory dataset in data/ (including seed tasks
+and synthetic trajectories) is Copyright 2026 EIRAKU (itsuki2049) and is
+released under Apache-2.0. Seed tasks and trajectories were authored by
+EIRAKU staff agents (Devin, Cognition) under direction of the EIRAKU team;
+the team holds and grants all rights. Provenance per file is recorded in
+data/trajectories/zh-Hant/MANIFEST.json.
